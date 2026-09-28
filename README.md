@@ -20,13 +20,8 @@ layer on top of the app you're already using. Alternates worth keeping in the dr
 | **Subtext** | "it reads between your lines" — overlay + intent inference |
 | **Meant** | "Say what you meant." — clean, one word, emotionally exact |
 | **Reframe** | every suggestion is a reframe of your message |
-| **GetAcross** | "finally get your point across" — outcome-first |
-| **TakeTwo** | "a second take before you hit send" |
-| **PromptLens** | descriptive, safe — for the ChatGPT-only version |
-| **Ghostwrite** | ghost-text suggestions, assistant that stays invisible |
-| **Nuance** | subtle, meaning-preserving |
 
-Renaming later is a 2-minute job: change `NAME` in `content.js` and the `name`
+Renaming later  change `NAME` in `content.js` and the `name`
 fields in `manifest.json`.
 
 ---
