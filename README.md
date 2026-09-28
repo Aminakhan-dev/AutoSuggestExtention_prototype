@@ -21,7 +21,7 @@ layer on top of the app you're already using. Alternates worth keeping in the dr
 | **Meant** | "Say what you meant." — clean, one word, emotionally exact |
 | **Reframe** | every suggestion is a reframe of your message |
 
-Renaming later  change `NAME` in `content.js` and the `name`
+Renaming later is a 2-minute job: change `NAME` in `content.js` and the `name`
 fields in `manifest.json`.
 
 ---
