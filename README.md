@@ -39,14 +39,27 @@ fields in `manifest.json`.
 4. Click **Load unpacked** and select this folder (the one containing `manifest.json`).
 5. Pin "Subtext" to the toolbar, click its icon → **Open Settings**.
 
-## Configure (one time)
+## Configure (one time, free)
 
-- Paste an **OpenAI API key** (create one at platform.openai.com → API keys).
-- Pick a model. `gpt-4o-mini` is the default: fast, cheap, good enough for v1.
-- Click **Save**, then **Test key** to confirm.
+**You do NOT need an OpenAI account.** Subtext supports free providers:
+
+| Provider | Cost | Get a key at | Notes |
+|---|---|---|---|
+| **Google Gemini** (default) | free tier, no credit card | [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey) | `gemini-2.5-flash`, generous limits |
+| **Groq** | free tier, no credit card | [console.groq.com/keys](https://console.groq.com/keys) | `openai/gpt-oss-120b`, very fast |
+| **OpenRouter** | free models (`:free` ids rotate) | [openrouter.ai/settings/keys](https://openrouter.ai/settings/keys) | paste any current free model id |
+| **OpenAI** | paid | platform.openai.com | if you already have a key |
+
+Steps:
+
+1. Pick **Google Gemini** in Settings, click the key link, sign in with a Google
+   account, **Create API key**, copy it.
+2. Paste into Subtext → **Save** → **Test key**.
+3. Done. Switch providers/models any time — custom model ids are allowed too.
 
 Your key is stored in `chrome.storage.local` — it stays in your browser and is
-only sent to OpenAI when you trigger a suggestion. Nothing else, nowhere else.
+only sent to the provider you selected when you trigger a suggestion. No analytics,
+no accounts, no servers of ours.
 
 ## Use
 
@@ -69,15 +82,16 @@ quick FYI, etc.).
 
 ## Privacy
 
-- Your draft text is sent to OpenAI (with your key) only when you click Improve.
-- No analytics, no accounts, no servers of ours. The extension talks to nothing
-  except `api.openai.com`.
+- Your draft text is sent to your chosen provider (with your key) only when you click Improve.
+- No analytics, no accounts, no servers of ours. The extension only talks to the
+  API endpoint of the provider you picked (Gemini / Groq / OpenRouter / OpenAI).
 
 ## Troubleshooting
 
 - **Chip never appears** — reload the ChatGPT tab after loading the extension;
   make sure you've typed at least 8 characters.
-- **"No API key set"** — toolbar icon → Open Settings → save a key.
+- **"No API key set"** — toolbar icon → Open Settings → pick a free provider, save a key.
+- **Provider error 429** — you hit the free-tier rate limit; wait a bit or switch provider.
 - **ChatGPT updated its DOM** — the script falls back to a generic editable-box
   finder, but if OpenAI renames things, the primary selector lives in
   `findEditor()` in `content.js` (`#prompt-textarea`).
@@ -94,6 +108,7 @@ quick FYI, etc.).
 
 ## Status
 
-Prototype. Not on the Chrome Web Store — load unpacked only. Rename pending
-(decision above), API key is BYO. Built fast to test the core loop; expect
-rough edges and tell the extension author everything.
+Prototype v0.1.1 (multi-provider: Gemini / Groq / OpenRouter / OpenAI — free
+tiers supported). Not on the Chrome Web Store — load unpacked only. Rename
+pending (decision above), API key is BYO. Built fast to test the core loop;
+expect rough edges and tell the extension author everything.

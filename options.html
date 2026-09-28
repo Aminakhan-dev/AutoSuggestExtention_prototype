@@ -48,11 +48,20 @@
 <body>
   <div class="card">
     <h1>Subtext settings</h1>
-    <div class="sub">Your key is stored locally in this browser and is only sent to OpenAI when you trigger a suggestion.</div>
+    <div class="sub">Your key is stored locally in this browser and is only sent to the provider you pick when you trigger a suggestion.</div>
 
-    <label for="apiKey">OpenAI API key</label>
-    <input type="password" id="apiKey" autocomplete="off" placeholder="sk-..." />
-    <p class="hint">Create one at platform.openai.com → API keys. Use a key with chat access.</p>
+    <label for="provider">Provider</label>
+    <select id="provider">
+      <option value="gemini">Google Gemini — free tier (recommended)</option>
+      <option value="groq">Groq — free tier</option>
+      <option value="openrouter">OpenRouter — free models</option>
+      <option value="openai">OpenAI — paid</option>
+    </select>
+    <p class="hint"><a id="keyLink" target="_blank" rel="noreferrer">Get a key here</a> — <span id="keyNote"></span></p>
+
+    <label for="apiKey">API key</label>
+    <input type="password" id="apiKey" autocomplete="off" placeholder="paste your key here" />
+    <p class="hint">Stored with chrome.storage.local. Never sent anywhere except your chosen provider.</p>
 
     <label for="model">Model</label>
     <select id="model">
@@ -74,9 +83,10 @@
     </div>
 
     <div class="note">
-      Then: open <b>chatgpt.com</b>, type a rough prompt, and click the small
-      <b>Improve</b> chip that appears above the message box — or press
-      <b>Alt+Shift+I</b>. Esc closes the suggestion panel, Ctrl+Enter accepts it.
+      <b>Free setup:</b> pick <b>Google Gemini</b>, click the key link above (Google AI Studio,
+      no credit card), create an API key, paste it, Save, Test. Then: open <b>chatgpt.com</b>,
+      type a rough prompt, and click the small <b>Improve</b> chip above the message box — or
+      press <b>Alt+Shift+I</b>. Esc closes the panel, Ctrl+Enter accepts a suggestion.
     </div>
   </div>
   <script src="options.js"></script>

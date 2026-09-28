@@ -2,10 +2,15 @@
   "manifest_version": 3,
   "name": "Subtext — say what you meant",
   "short_name": "Subtext",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Reads your draft on ChatGPT, infers what you actually want, and quietly suggests a sharper prompt. One click to use it.",
   "permissions": ["storage"],
-  "host_permissions": ["https://api.openai.com/*"],
+  "host_permissions": [
+    "https://api.openai.com/*",
+    "https://generativelanguage.googleapis.com/*",
+    "https://api.groq.com/*",
+    "https://openrouter.ai/*"
+  ],
   "background": {
     "service_worker": "background.js"
   },

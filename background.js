@@ -1,11 +1,41 @@
 /*
  * Subtext — background service worker
  * Owns the API key and all LLM traffic so page scripts never touch secrets.
+ * Supports free providers (Google Gemini, Groq, OpenRouter) via their
+ * OpenAI-compatible endpoints, plus OpenAI itself.
  */
 
-const DEFAULT_MODEL = 'gpt-4o-mini';
-const OPENAI_CHAT_URL = 'https://api.openai.com/v1/chat/completions';
-const OPENAI_MODELS_URL = 'https://api.openai.com/v1/models';
+const PROVIDERS = {
+  gemini: {
+    label: 'Google Gemini (free tier)',
+    base: 'https://generativelanguage.googleapis.com/v1beta/openai',
+    defaultModel: 'gemini-2.5-flash',
+    models: ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.0-flash']
+  },
+  groq: {
+    label: 'Groq (free tier)',
+    base: 'https://api.groq.com/openai/v1',
+    defaultModel: 'openai/gpt-oss-120b',
+    models: ['openai/gpt-oss-120b', 'openai/gpt-oss-20b']
+  },
+  openrouter: {
+    label: 'OpenRouter (free models)',
+    base: 'https://openrouter.ai/api/v1',
+    defaultModel: 'meta-llama/llama-3.3-70b-instruct:free',
+    models: ['meta-llama/llama-3.3-70b-instruct:free', 'google/gemini-2.0-flash-exp:free']
+  },
+  openai: {
+    label: 'OpenAI (paid)',
+    base: 'https://api.openai.com/v1',
+    defaultModel: 'gpt-4o-mini',
+    models: ['gpt-4o-mini', 'gpt-4o', 'gpt-4.1-mini']
+  }
+};
+const DEFAULT_PROVIDER = 'gemini';
+
+function providerConfig(name) {
+  return PROVIDERS[name] || PROVIDERS[DEFAULT_PROVIDER];
+}
 
 const SYSTEM_PROMPT = [
   'You are Subtext, an expert prompt engineer and communication coach built into a browser extension. The user typed a rough draft into ChatGPT.',
@@ -45,30 +75,56 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 });
 
 async function getConfig() {
-  const { apiKey, model } = await chrome.storage.local.get(['apiKey', 'model']);
-  return { apiKey: (apiKey || '').trim(), model: (model || DEFAULT_MODEL).trim() };
+  const { provider, apiKey, model } = await chrome.storage.local.get(['provider', 'apiKey', 'model']);
+  const cfg = providerConfig(provider);
+  let effectiveModel = (model || '').trim();
+  // reset the model if it belongs to another provider's list
+  if (!effectiveModel || (cfg.models.indexOf(effectiveModel) === -1 && !cfgAllowCustom(provider))) {
+    effectiveModel = cfg.defaultModel;
+  }
+  return { provider: provider || DEFAULT_PROVIDER, cfg, apiKey: (apiKey || '').trim(), model: effectiveModel };
+}
+
+function cfgAllowCustom(providerName) {
+  // every provider accepts a custom model id typed by the user
+  return true;
 }
 
 async function pingKey() {
-  const { apiKey } = await getConfig();
+  const { cfg, apiKey, model } = await getConfig();
   if (!apiKey) throw new Error('No API key set yet.');
-  const res = await fetch(OPENAI_MODELS_URL, {
-    headers: { Authorization: 'Bearer ' + apiKey }
+  // use a tiny completion instead of GET /models — every provider supports it
+  const res = await fetch(cfg.base + '/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + apiKey },
+    body: JSON.stringify({
+      model: model,
+      messages: [{ role: 'user', content: 'Reply with the single word: OK' }],
+      max_tokens: 5
+    }),
+    signal: AbortSignal.timeout(20000)
   });
   if (!res.ok) {
     const detail = await errDetail(res);
-    throw new Error('OpenAI rejected the key (' + res.status + ')' + detail);
+    throw new Error(providerConfigLabel(cfg) + ' rejected the key (' + res.status + ')' + detail);
   }
 }
 
+function providerConfigLabel(cfg) {
+  for (const k of Object.keys(PROVIDERS)) {
+    if (PROVIDERS[k].base === cfg.base) return PROVIDERS[k].label;
+  }
+  return 'The provider';
+}
+
 async function improvePrompt(text) {
-  const { apiKey, model } = await getConfig();
+  const { cfg, apiKey, model } = await getConfig();
   if (!apiKey) throw new Error('No API key set. Click the Subtext toolbar icon, then Settings.');
   if (!text || !text.trim()) throw new Error('Nothing to improve - the message box looks empty.');
 
   let res;
   try {
-    res = await fetch(OPENAI_CHAT_URL, {
+    res = await fetch(cfg.base + '/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -86,25 +142,20 @@ async function improvePrompt(text) {
       signal: AbortSignal.timeout(45000)
     });
   } catch (e) {
-    if (e && e.name === 'TimeoutError') throw new Error('Timed out waiting for OpenAI. Try again.');
-    throw new Error('Network error talking to OpenAI: ' + String((e && e.message) || e));
+    if (e && e.name === 'TimeoutError') throw new Error('Timed out waiting for the model. Try again.');
+    throw new Error('Network error talking to ' + cfg.label + ': ' + String((e && e.message) || e));
   }
 
   if (!res.ok) {
     const detail = await errDetail(res);
-    throw new Error('OpenAI error ' + res.status + detail);
+    throw new Error(cfg.label + ' error ' + res.status + detail);
   }
 
   const json = await res.json();
   const content = (json.choices && json.choices[0] && json.choices[0].message && json.choices[0].message.content) || '';
 
-  let parsed;
-  try {
-    parsed = JSON.parse(content);
-  } catch (_) {
-    throw new Error('Could not parse the model response. Try again.');
-  }
-  if (!parsed || !parsed.primary) throw new Error('Model returned no suggestion. Try again.');
+  const parsed = extractJson(content);
+  if (!parsed || !parsed.primary) throw new Error('Model returned no usable suggestion. Try again.');
 
   const variants = Array.isArray(parsed.variants)
     ? parsed.variants.slice(0, 2).map((v) => ({
@@ -118,6 +169,16 @@ async function improvePrompt(text) {
     primary: String(parsed.primary),
     variants: variants
   };
+}
+
+function extractJson(content) {
+  try { return JSON.parse(content); } catch (_) {}
+  // free-tier models sometimes wrap JSON in fences or chatter — grab the outermost object
+  const m = String(content).match(/\{[\s\S]*\}/);
+  if (m) {
+    try { return JSON.parse(m[0]); } catch (_) {}
+  }
+  return null;
 }
 
 async function errDetail(res) {
