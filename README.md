@@ -1,4 +1,4 @@
-# Subtext — prototype v0.1.4
+# Subtext — prototype v0.1.5
 
 **Say what you meant.** Subtext is a Chrome extension that reads the rough prompt
 you just typed into ChatGPT, infers what you *actually* want to accomplish, and
@@ -87,7 +87,10 @@ quick FYI, etc.).
   make sure you've typed at least 8 characters.
 - **"No API key set"** — toolbar icon → Open Settings → pick a free provider, save a key.
 - **Provider error 429** — you hit the free-tier rate limit; wait a bit or switch provider.
-  The Test button now treats 429 as *key is valid* rather than a failure.
+  Both the Test button and Improve now treat 429 as *key is valid, just busy*.
+- **503 / "high demand"** — the provider is overloaded, your key and model are fine.
+  The Test button retries once automatically and says so instead of reporting a failure
+  of your setup; Improve retries once after ~2s.
 - **"model … is no longer available" (404)** — model ids retire over time. Since v0.1.4
   the extension auto-fixes this: it tries the replacement model named in the provider's
   own error message, then verifies candidates from the live model list one by one before
@@ -109,7 +112,7 @@ quick FYI, etc.).
 
 ## Status
 
-Prototype v0.1.4 (multi-provider: Gemini / Groq / OpenRouter / OpenAI — free
+Prototype v0.1.5 (multi-provider: Gemini / Groq / OpenRouter / OpenAI — free
 tiers supported). Not on the Chrome Web Store — load unpacked only. Rename
 pending (decision above), API key is BYO. Built fast to test the core loop;
 expect rough edges and tell the extension author everything.

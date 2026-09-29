@@ -34,6 +34,13 @@ const PROVIDERS = {
 };
 const DEFAULT_PROVIDER = 'gemini';
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// 429 = rate-limited, 5xx = provider overloaded: the key is fine and no model
+// switch can help — these must never trigger healing nor read as "bad key".
+function isBusyStatus(status) {
+  return status === 429 || status >= 500;
+}
+
 function providerConfig(name) {
   return PROVIDERS[name] || PROVIDERS[DEFAULT_PROVIDER];
 }
@@ -313,27 +320,46 @@ async function pingKey() {
   let used = model;
   let res = await tinyChat(cfg, apiKey, used);
 
-  // 429 proves the key AND the model id are valid — just busy. Never heal on it;
-  // free tiers (Gemini ~60 RPM, Groq ~30 RPM) hit this routinely.
-  if (res.status === 429) return used;
+  // Busy on the first try: the key and model id are proven valid — just retry
+  // once after a short pause instead of burning a heal cycle on it.
+  if (isBusyStatus(res.status)) {
+    await sleep(1500);
+    res = await tinyChat(cfg, apiKey, used);
+    if (res.ok || res.status === 429) return used;
+    if (res.status >= 500) {
+      throw new Error(providerConfigLabel(cfg) + ' is overloaded right now (high demand). Your key and model (' + used + ') are fine — try again in a minute.');
+    }
+  }
 
-  // Any failure triggers self-heal: try the model the provider itself suggests,
-  // then live-discovered models (verified one by one), then known candidates.
+  // Remaining failures are model-ish (404) or auth-ish (401/403) — heal only
+  // when the error is actually about the model.
   if (!res.ok) {
     const firstDetail = await errDetail(res);
-    const healed = await healModel(firstDetail);
-    if (healed.model) {
-      used = healed.model;
-      res = await tinyChat(cfg, apiKey, used);
-      if (res.ok || res.status === 429) return used; // auto-fix worked
+    const modelErr = res.status === 404
+      || /no longer available|not found|does not exist|unsupported model|invalid model/i.test(firstDetail);
+
+    if (modelErr) {
+      const healed = await healModel(firstDetail);
+      if (healed.model) {
+        used = healed.model;
+        res = await tinyChat(cfg, apiKey, used);
+        if (res.ok || res.status === 429) return used; // auto-fix worked
+        if (res.status >= 500) {
+          // heal succeeded, provider got busy a second later — setup is correct
+          throw new Error('Auto-fix switched to ' + used + ' and it verified OK, but ' + providerConfigLabel(cfg) + ' hit high demand right after. Your setup is correct — try again in a minute.');
+        }
+      }
+      const detail = await errDetail(res);
+      let msg = providerConfigLabel(cfg) + ' rejected the key (' + res.status + ')' + detail;
+      msg += ' [auto-fix tried: ' + (healed.note || 'no alternative model worked') + ']';
+      if (res.status === 404 || /no longer available|not found/i.test(detail)) {
+        msg += ' - try "Refresh model list" or pick another model in Settings.';
+      }
+      throw new Error(msg);
     }
+
     const detail = await errDetail(res);
-    let msg = providerConfigLabel(cfg) + ' rejected the key (' + res.status + ')' + detail;
-    msg += ' [auto-fix tried: ' + (healed.note || 'no alternative model worked') + ']';
-    if (res.status === 404 || /no longer available|not found/i.test(detail)) {
-      msg += ' - try "Refresh model list" or pick another model in Settings.';
-    }
-    throw new Error(msg);
+    throw new Error(providerConfigLabel(cfg) + ' rejected the key (' + res.status + ')' + detail);
   }
   return used;
 }
@@ -376,6 +402,18 @@ async function improvePrompt(text, noRetry) {
 
   if (!res.ok) {
     const detail = await errDetail(res);
+
+    if (res.status === 429) {
+      throw new Error(cfg.label + ' rate limit reached — wait a bit and try again.' + detail.slice(0, 120));
+    }
+    if (res.status >= 500) {
+      if (!noRetry) {
+        await sleep(2000);
+        return improvePrompt(text, true); // one retry for transient overload
+      }
+      throw new Error(cfg.label + ' is overloaded right now (high demand). Your key and model are fine — try again in a minute.');
+    }
+
     const modelErr = res.status === 404
       || /no longer available|not found|does not exist|unsupported model|invalid model/i.test(detail);
     if (modelErr && !noRetry) {
