@@ -80,6 +80,55 @@ async function load() {
   rebuildModelSelect(provider, model);
 }
 
+function rebuildModelSelectFromList(models, selectedModel) {
+  const sel = $('model');
+  sel.innerHTML = '';
+  models.forEach((m) => {
+    const o = document.createElement('option');
+    o.value = m;
+    o.textContent = m;
+    sel.appendChild(o);
+  });
+  const custom = document.createElement('option');
+  custom.value = 'custom';
+  custom.textContent = 'Custom…';
+  sel.appendChild(custom);
+
+  if (selectedModel && models.indexOf(selectedModel) !== -1) {
+    sel.value = selectedModel;
+    $('customWrap').hidden = true;
+  } else if (selectedModel) {
+    sel.value = 'custom';
+    $('customModel').value = selectedModel;
+    $('customWrap').hidden = false;
+  }
+}
+
+async function refreshModels() {
+  setStatus('Loading model list from provider…', '');
+  const res = await chrome.runtime.sendMessage({ type: 'listModels' });
+  if (res && res.ok && res.models && res.models.length) {
+    rebuildModelSelectFromList(res.models, res.default || null);
+    setStatus('Loaded ' + res.models.length + ' models. Using: ' + res.default, 'ok');
+  } else {
+    setStatus('Could not load models: ' + ((res && res.error) || 'no response') + ' — check the key is saved first.', 'bad');
+  }
+}
+
+function syncModelUI(modelId) {
+  if (!modelId) return;
+  const sel = $('model');
+  const hasOption = Array.prototype.some.call(sel.options, (o) => o.value === modelId);
+  if (hasOption) {
+    sel.value = modelId;
+    $('customWrap').hidden = true;
+  } else {
+    sel.value = 'custom';
+    $('customModel').value = modelId;
+    $('customWrap').hidden = false;
+  }
+}
+
 async function save() {
   const provider = $('provider').value;
   const key = $('apiKey').value.trim();
@@ -95,7 +144,12 @@ async function testKey() {
   setStatus('Testing…', '');
   const res = await chrome.runtime.sendMessage({ type: 'ping' });
   if (res && res.ok) {
-    setStatus('Key works.', 'ok');
+    // background may have auto-switched to a discovered model — reflect it
+    if (res.model) {
+      await chrome.storage.local.set({ model: res.model });
+      syncModelUI(res.model);
+    }
+    setStatus('Key works.' + (res.model ? ' Using model: ' + res.model : ''), 'ok');
   } else {
     setStatus('Failed: ' + ((res && res.error) || 'no response'), 'bad');
   }
@@ -109,6 +163,7 @@ $('provider').addEventListener('change', () => {
 $('model').addEventListener('change', () => {
   $('customWrap').hidden = $('model').value !== 'custom';
 });
+$('refreshModels').addEventListener('click', () => { refreshModels().catch((e) => setStatus('Refresh failed: ' + e, 'bad')); });
 $('save').addEventListener('click', () => { save().catch((e) => setStatus('Save failed: ' + e, 'bad')); });
 $('test').addEventListener('click', () => { testKey().catch((e) => setStatus('Test failed: ' + e, 'bad')); });
 

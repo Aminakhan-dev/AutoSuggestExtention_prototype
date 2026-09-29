@@ -38,6 +38,10 @@
     .ghost { background: transparent; border-color: light-dark(rgba(17,24,39,.15), rgba(255,255,255,.2)); color: inherit; }
     #status { font-size: 12.5px; color: light-dark(#6b7280, #9aa1ad); }
     #status.ok { color: #059669; } #status.bad { color: #dc2626; }
+    .linkish {
+      background: none; border: 0; padding: 0; cursor: pointer;
+      color: #4f46e5; font: 500 11.5px/1 system-ui, sans-serif; text-decoration: underline;
+    }
     .note {
       margin-top: 20px; padding: 12px 14px; border-radius: 10px; font-size: 12.5px;
       background: light-dark(rgba(99,102,241,.07), rgba(99,102,241,.12));
@@ -63,7 +67,7 @@
     <input type="password" id="apiKey" autocomplete="off" placeholder="paste your key here" />
     <p class="hint">Stored with chrome.storage.local. Never sent anywhere except your chosen provider.</p>
 
-    <label for="model">Model</label>
+    <label for="model" style="display:flex;align-items:baseline;gap:12px">Model <button type="button" id="refreshModels" class="linkish">Refresh model list</button></label>
     <select id="model">
       <option value="gpt-4o-mini">gpt-4o-mini (recommended: fast + cheap)</option>
       <option value="gpt-4o">gpt-4o</option>

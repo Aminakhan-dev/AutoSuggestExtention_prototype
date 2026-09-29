@@ -9,8 +9,9 @@ const PROVIDERS = {
   gemini: {
     label: 'Google Gemini (free tier)',
     base: 'https://generativelanguage.googleapis.com/v1beta/openai',
-    defaultModel: 'gemini-2.5-flash',
-    models: ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.0-flash']
+    kind: 'google',
+    defaultModel: 'gemini-3.7-flash',
+    models: ['gemini-3.7-flash', 'gemini-3.5-flash', 'gemini-2.5-flash', 'gemini-2.0-flash']
   },
   groq: {
     label: 'Groq (free tier)',
@@ -37,6 +38,89 @@ function providerConfig(name) {
   return PROVIDERS[name] || PROVIDERS[DEFAULT_PROVIDER];
 }
 
+// ---- live model discovery (model ids rot; never trust hardcoded ones) ----
+
+const GEMINI_NATIVE_LIST_URL = 'https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000';
+const BAD_MODEL_RE = /embedding|aqa|imagen|veo|lyria|tts|native-?audio|image|learnlm|live|ComputerUse|robotics/i;
+
+async function listModelsRaw() {
+  const { cfg, apiKey } = await getConfig();
+  if (!apiKey) throw new Error('No API key set yet.');
+
+  if (cfg.kind === 'google') {
+    const res = await fetch(GEMINI_NATIVE_LIST_URL, {
+      headers: { 'x-goog-api-key': apiKey },
+      signal: AbortSignal.timeout(20000)
+    });
+    if (!res.ok) {
+      const detail = await errDetail(res);
+      throw new Error('Could not list models (' + res.status + ')' + detail);
+    }
+    const j = await res.json();
+    return (j.models || [])
+      .filter((m) => {
+        const methods = m.supportedGenerationMethods || m.supportedActions || [];
+        return methods.indexOf('generateContent') !== -1;
+      })
+      .map((m) => String(m.name || '').replace(/^models\//, ''))
+      .filter((id) => id && !BAD_MODEL_RE.test(id));
+  }
+
+  const res = await fetch(cfg.base + '/models', {
+    headers: { Authorization: 'Bearer ' + apiKey },
+    signal: AbortSignal.timeout(20000)
+  });
+  if (!res.ok) {
+    const detail = await errDetail(res);
+    throw new Error('Could not list models (' + res.status + ')' + detail);
+  }
+  const j = await res.json();
+  return (j.data || [])
+    .map((m) => String(m.id || m.name || ''))
+    .filter((id) => id && !BAD_MODEL_RE.test(id));
+}
+
+function pickDefault(models, providerKey) {
+  const prefs = {
+    gemini: [
+      (m) => /flash/i.test(m) && !/lite|thinking|preview|exp|pro/i.test(m),
+      (m) => /flash/i.test(m) && !/thinking|pro/i.test(m),
+      (m) => /gemini/i.test(m) && !/pro/i.test(m)
+    ],
+    groq: [
+      (m) => /gpt-oss-120b/i.test(m),
+      (m) => /120b|70b/i.test(m)
+    ],
+    openrouter: [
+      (m) => /:free$/i.test(m) && /flash|llama|deepseek|qwen/i.test(m),
+      (m) => /:free$/i.test(m)
+    ],
+    openai: [
+      (m) => /gpt-4o-mini/i.test(m),
+      (m) => /mini|small/i.test(m)
+    ]
+  };
+  const chain = prefs[providerKey] || [(m) => !!m];
+  for (const test of chain) {
+    const hit = models.find(test);
+    if (hit) return hit;
+  }
+  return models[0] || '';
+}
+
+async function selfHealModel() {
+  try {
+    const { provider } = await getConfig();
+    const models = await listModelsRaw();
+    const def = pickDefault(models, provider);
+    if (def) {
+      await chrome.storage.local.set({ model: def });
+      return def;
+    }
+  } catch (_) {}
+  return null;
+}
+
 const SYSTEM_PROMPT = [
   'You are Subtext, an expert prompt engineer and communication coach built into a browser extension. The user typed a rough draft into ChatGPT.',
   '',
@@ -60,9 +144,22 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     return true; // keep the message channel open for the async reply
   }
 
+  if (msg && msg.type === 'listModels') {
+    (async () => {
+      const models = await listModelsRaw();
+      const { provider } = await getConfig();
+      const def = pickDefault(models, provider);
+      if (def) await chrome.storage.local.set({ model: def });
+      return { ok: true, models: models, default: def };
+    })()
+      .then((r) => sendResponse(r))
+      .catch((err) => sendResponse({ ok: false, error: String((err && err.message) || err) }));
+    return true;
+  }
+
   if (msg && msg.type === 'ping') {
     pingKey()
-      .then(() => sendResponse({ ok: true }))
+      .then((usedModel) => sendResponse({ ok: true, model: usedModel }))
       .catch((err) => sendResponse({ ok: false, error: String((err && err.message) || err) }));
     return true;
   }
@@ -90,11 +187,8 @@ function cfgAllowCustom(providerName) {
   return true;
 }
 
-async function pingKey() {
-  const { cfg, apiKey, model } = await getConfig();
-  if (!apiKey) throw new Error('No API key set yet.');
-  // use a tiny completion instead of GET /models — every provider supports it
-  const res = await fetch(cfg.base + '/chat/completions', {
+async function tinyChat(cfg, apiKey, model) {
+  return fetch(cfg.base + '/chat/completions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + apiKey },
     body: JSON.stringify({
@@ -104,10 +198,32 @@ async function pingKey() {
     }),
     signal: AbortSignal.timeout(20000)
   });
+}
+
+async function pingKey() {
+  const { cfg, apiKey, model } = await getConfig();
+  if (!apiKey) throw new Error('No API key set yet.');
+
+  let used = model;
+  let res = await tinyChat(cfg, apiKey, used);
+
+  // 404 almost always means the stored model id was retired/renamed.
+  // Self-heal: discover live models, save a working default, retry once.
+  if (res.status === 404) {
+    const healed = await selfHealModel();
+    if (healed) {
+      used = healed;
+      res = await tinyChat(cfg, apiKey, used);
+    }
+  }
+
   if (!res.ok) {
     const detail = await errDetail(res);
-    throw new Error(providerConfigLabel(cfg) + ' rejected the key (' + res.status + ')' + detail);
+    let msg = providerConfigLabel(cfg) + ' rejected the key (' + res.status + ')' + detail;
+    if (res.status === 404) msg += ' - model id may be outdated. Use "Refresh model list" in Settings.';
+    throw new Error(msg);
   }
+  return used;
 }
 
 function providerConfigLabel(cfg) {
@@ -117,7 +233,7 @@ function providerConfigLabel(cfg) {
   return 'The provider';
 }
 
-async function improvePrompt(text) {
+async function improvePrompt(text, noRetry) {
   const { cfg, apiKey, model } = await getConfig();
   if (!apiKey) throw new Error('No API key set. Click the Subtext toolbar icon, then Settings.');
   if (!text || !text.trim()) throw new Error('Nothing to improve - the message box looks empty.');
@@ -147,6 +263,12 @@ async function improvePrompt(text) {
   }
 
   if (!res.ok) {
+    // stale model id: discover a live one and retry once
+    if (res.status === 404) {
+      const original = model;
+      const healed = await selfHealModel();
+      if (healed && healed !== original) return improvePrompt(text, true);
+    }
     const detail = await errDetail(res);
     throw new Error(cfg.label + ' error ' + res.status + detail);
   }
