@@ -10,8 +10,8 @@ const PROVIDERS = {
     label: 'Google Gemini (free tier)',
     base: 'https://generativelanguage.googleapis.com/v1beta/openai',
     kind: 'google',
-    defaultModel: 'gemini-3.7-flash',
-    models: ['gemini-3.7-flash', 'gemini-3.5-flash', 'gemini-2.5-flash', 'gemini-2.0-flash']
+    defaultModel: 'gemini-3.8-flash',
+    models: ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.5-flash', 'gemini-flash-latest', 'gemini-2.5-flash']
   },
   groq: {
     label: 'Groq (free tier)',
@@ -113,7 +113,7 @@ function parseGeminiModels(j) {
 
 // last-resort candidates, tried directly against chat/completions
 const CANDIDATE_MODELS = {
-  gemini: ['gemini-3.7-flash', 'gemini-3.5-flash', 'gemini-3-flash', 'gemini-flash-latest', 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.0-flash-lite'],
+  gemini: ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.5-flash', 'gemini-flash-latest', 'gemini-3-flash', 'gemini-2.5-flash', 'gemini-2.0-flash'],
   groq: ['openai/gpt-oss-120b', 'openai/gpt-oss-20b', 'llama-3.3-70b-versatile'],
   openrouter: ['meta-llama/llama-3.3-70b-instruct:free', 'google/gemini-2.0-flash-exp:free'],
   openai: ['gpt-4o-mini', 'gpt-4.1-mini', 'gpt-4o']
@@ -129,57 +129,102 @@ async function bruteForceModel(cfg, apiKey, providerKey) {
   return '';
 }
 
-// returns { model, note } — note explains what happened for diagnostics
-async function healModel() {
-  const { provider, cfg, apiKey } = await getConfig();
-  let models = [];
-  let note = '';
+// Gemini (and others) sometimes retire a model id for new keys and name the
+// replacement right inside the error body, e.g.:
+//   "This model models/gemini-2.5-flash is no longer available to new users.
+//    Please update your code to use models/gemini-3.8-flash"
+// Parse that hint out — it is the most reliable heal signal there is.
+function suggestModelFromError(text) {
+  const t = String(text || '');
+  const m = t.match(/use\s+models\/([a-z0-9][a-z0-9._:-]*)/i)
+        || t.match(/(?:switch|migrate|fallback)[^."']*?models\/([a-z0-9][a-z0-9._:-]*)/i);
+  return m ? m[1].replace(/^models\//, '') : '';
+}
+
+// A model id is only "healed" once THIS key proves it works (or at least exists).
+// 429 counts as valid: the id exists for this key but is temporarily rate-limited.
+async function verifyModel(cfg, apiKey, id) {
   try {
-    models = await listModelsRaw();
-  } catch (e) {
-    note = 'model-list failed (' + String((e && e.message) || e) + ')';
+    const res = await tinyChat(cfg, apiKey, id);
+    return res.ok || res.status === 429;
+  } catch (_) {
+    return false;
   }
-  let def = models.length ? pickDefault(models, provider) : '';
-  if (!def) {
-    def = await bruteForceModel(cfg, apiKey, provider);
-    if (def) note += (note ? '; ' : '') + 'resolved by testing candidate ids';
+}
+
+// Rank model ids newest/cheapest first. Order matters: the old code took the
+// FIRST flash match in list order, which re-picked retired ids (gemini-2.5-flash
+// still appears in the list even for keys that cannot use it).
+function modelScore(id, providerKey) {
+  const s = String(id);
+  if (providerKey === 'gemini') {
+    let score = 0;
+    if (!/^gemini/i.test(s)) score -= 1000;              // never default to gemma etc.
+    const v = s.match(/(\d+)(?:\.(\d+))?/);
+    if (v) score += parseInt(v[1], 10) * 100 + (v[2] ? parseInt(v[2], 10) : 0) * 10;
+    if (/flash/i.test(s)) score += 50;
+    if (/pro/i.test(s)) score -= 10;
+    if (/lite/i.test(s)) score -= 20;
+    if (/thinking|preview|exp|deprecated|legacy|banned/i.test(s)) score -= 100;
+    return score;
   }
-  if (!def) return { model: '', note: note || 'no usable models discovered' };
-  await chrome.storage.local.set({ model: def });
-  return { model: def, note: note };
+  if (providerKey === 'groq') return /gpt-oss-120b/i.test(s) ? 100 : (/120b|70b/i.test(s) ? 50 : 0);
+  if (providerKey === 'openrouter') return (/:free$/i.test(s) ? 100 : -100) + (/flash|llama|deepseek|qwen/i.test(s) ? 10 : 0);
+  if (providerKey === 'openai') return /gpt-4o-mini/i.test(s) ? 100 : (/mini|small/i.test(s) ? 50 : 0);
+  return 0;
+}
+
+function rankCandidates(models, providerKey) {
+  return models.slice().sort((a, b) => modelScore(b, providerKey) - modelScore(a, providerKey));
 }
 
 function pickDefault(models, providerKey) {
-  const prefs = {
-    gemini: [
-      (m) => /flash/i.test(m) && !/lite|thinking|preview|exp|pro/i.test(m),
-      (m) => /flash/i.test(m) && !/thinking|pro/i.test(m),
-      (m) => /gemini/i.test(m) && !/pro/i.test(m)
-    ],
-    groq: [
-      (m) => /gpt-oss-120b/i.test(m),
-      (m) => /120b|70b/i.test(m)
-    ],
-    openrouter: [
-      (m) => /:free$/i.test(m) && /flash|llama|deepseek|qwen/i.test(m),
-      (m) => /:free$/i.test(m)
-    ],
-    openai: [
-      (m) => /gpt-4o-mini/i.test(m),
-      (m) => /mini|small/i.test(m)
-    ]
-  };
-  const chain = prefs[providerKey] || [(m) => !!m];
-  for (const test of chain) {
-    const hit = models.find(test);
-    if (hit) return hit;
-  }
-  return models[0] || '';
+  return rankCandidates(models, providerKey)[0] || '';
 }
 
-async function selfHealModel() {
-  const healed = await healModel();
-  return healed.model;
+// returns { model, note } — note explains what happened for diagnostics.
+// A healed model is always VERIFIED with a real 1-token call before being saved.
+async function healModel(failText) {
+  const { provider, cfg, apiKey } = await getConfig();
+  const notes = [];
+
+  // 1) fastest path: the provider's own error often names the replacement model
+  const hinted = suggestModelFromError(failText);
+  if (hinted) {
+    if (await verifyModel(cfg, apiKey, hinted)) {
+      await chrome.storage.local.set({ model: hinted });
+      return { model: hinted, note: 'switched to ' + hinted + ' (model suggested by the provider in its error message)' };
+    }
+    notes.push('provider-suggested ' + hinted + ' did not work either');
+  }
+
+  // 2) discover live models from this key, verify top-ranked candidates
+  let models = [];
+  try {
+    models = await listModelsRaw();
+  } catch (e) {
+    notes.push('model-list failed (' + String((e && e.message) || e) + ')');
+  }
+  if (models.length) {
+    const ranked = rankCandidates(models, provider);
+    for (const id of ranked.slice(0, 4)) {
+      if (await verifyModel(cfg, apiKey, id)) {
+        await chrome.storage.local.set({ model: id });
+        return { model: id, note: 'switched to ' + id + ' (verified against the live model list)' };
+      }
+    }
+    notes.push('top-ranked models from the list were all rejected');
+  }
+
+  // 3) last resort: brute-force well-known ids
+  for (const id of (CANDIDATE_MODELS[provider] || [])) {
+    if (await verifyModel(cfg, apiKey, id)) {
+      await chrome.storage.local.set({ model: id });
+      return { model: id, note: 'switched to ' + id + ' (tested known model ids)' };
+    }
+  }
+
+  return { model: '', note: notes.join('; ') || 'no usable models discovered' };
 }
 
 const SYSTEM_PROMPT = [
@@ -267,24 +312,27 @@ async function pingKey() {
 
   let used = model;
   let res = await tinyChat(cfg, apiKey, used);
-  let healNote = '';
 
-  // Any failure triggers self-heal: discover live models from the key itself,
-  // then brute-force known candidates as a last resort.
+  // 429 proves the key AND the model id are valid — just busy. Never heal on it;
+  // free tiers (Gemini ~60 RPM, Groq ~30 RPM) hit this routinely.
+  if (res.status === 429) return used;
+
+  // Any failure triggers self-heal: try the model the provider itself suggests,
+  // then live-discovered models (verified one by one), then known candidates.
   if (!res.ok) {
-    const healed = await healModel();
-    healNote = healed.note;
+    const firstDetail = await errDetail(res);
+    const healed = await healModel(firstDetail);
     if (healed.model) {
       used = healed.model;
       res = await tinyChat(cfg, apiKey, used);
+      if (res.ok || res.status === 429) return used; // auto-fix worked
     }
-  }
-
-  if (!res.ok) {
     const detail = await errDetail(res);
     let msg = providerConfigLabel(cfg) + ' rejected the key (' + res.status + ')' + detail;
-    if (healNote) msg += ' [auto-fix attempt: ' + healNote + ']';
-    if (res.status === 404) msg += ' - try "Refresh model list" or pick another model in Settings.';
+    msg += ' [auto-fix tried: ' + (healed.note || 'no alternative model worked') + ']';
+    if (res.status === 404 || /no longer available|not found/i.test(detail)) {
+      msg += ' - try "Refresh model list" or pick another model in Settings.';
+    }
     throw new Error(msg);
   }
   return used;
@@ -327,12 +375,14 @@ async function improvePrompt(text, noRetry) {
   }
 
   if (!res.ok) {
-    if (res.status === 404 && !noRetry) {
+    const detail = await errDetail(res);
+    const modelErr = res.status === 404
+      || /no longer available|not found|does not exist|unsupported model|invalid model/i.test(detail);
+    if (modelErr && !noRetry) {
       const original = model;
-      const healed = await healModel();
+      const healed = await healModel(detail);
       if (healed.model && healed.model !== original) return improvePrompt(text, true);
     }
-    const detail = await errDetail(res);
     throw new Error(cfg.label + ' error ' + res.status + detail);
   }
 
@@ -371,7 +421,8 @@ async function errDetail(res) {
   try { text = await res.text(); } catch (_) { return ''; }
   if (!text) return '';
   try {
-    const j = JSON.parse(text);
+    let j = JSON.parse(text);
+    if (Array.isArray(j)) j = j[0]; // some endpoints wrap errors in an array
     const m = j && j.error && (j.error.message || j.error.status);
     if (m) return ': ' + String(m).slice(0, 300);
   } catch (_) {}

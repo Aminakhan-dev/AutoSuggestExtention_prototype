@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Subtext — say what you meant",
   "short_name": "Subtext",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Reads your draft on ChatGPT, infers what you actually want, and quietly suggests a sharper prompt. One click to use it.",
   "permissions": ["storage"],
   "host_permissions": [

@@ -5,8 +5,8 @@ const $ = (id) => document.getElementById(id);
 // keep in sync with PROVIDERS in background.js
 const PROVIDERS = {
   gemini: {
-    models: ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.0-flash'],
-    defaultModel: 'gemini-2.5-flash',
+    models: ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.5-flash', 'gemini-flash-latest', 'gemini-2.5-flash'],
+    defaultModel: 'gemini-3.8-flash',
     keyUrl: 'https://aistudio.google.com/app/apikey',
     keyNote: 'free, no credit card needed'
   },
