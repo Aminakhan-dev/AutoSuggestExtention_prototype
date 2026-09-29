@@ -189,7 +189,10 @@
   let hintTimer = null;
   let bootHintShown = false;
   let pollCount = 0;
+  let lastDeepScan = 0;
   const boundEditors = new WeakSet();
+
+  const EDITABLE_SEL = 'textarea, [contenteditable="true"], [contenteditable="plaintext-only"], [contenteditable=""]';
 
   // ---------------- utils ----------------
   function clampNum(n, lo, hi) {
@@ -218,39 +221,65 @@
   }
 
   // ---------------- editor discovery ----------------
-  function findEditor() {
-    // ChatGPT has shipped several composer shapes; try known ids/classes first.
-    const knownSelectors = [
-      '#prompt-textarea',
-      '.ProseMirror[contenteditable="true"]',
-      'form [contenteditable="true"]',
-      'textarea[data-id]'
-    ];
-    for (const sel of knownSelectors) {
-      const els = document.querySelectorAll(sel);
-      for (const el of els) {
-        if (!isVisible(el)) continue;
-        if (!el.isContentEditable && el.tagName !== 'TEXTAREA') continue;
-        const r = el.getBoundingClientRect();
-        if (r.width > 120 && r.height > 20) return el;
+  // ChatGPT has shipped many composer shapes (textarea, ProseMirror div,
+  // plaintext-only editables, role=textbox). Walk priority selectors, and
+  // every ~2.5s also pierce open shadow roots in case the composer is one.
+  function allRoots() {
+    const roots = [document];
+    const stack = [document];
+    try {
+      while (stack.length) {
+        const r = stack.pop();
+        let els;
+        try { els = r.querySelectorAll('*'); } catch (_) { continue; }
+        for (const el of els) {
+          if (el.shadowRoot) { roots.push(el.shadowRoot); stack.push(el.shadowRoot); }
+        }
       }
-    }
+    } catch (_) { /* ignore */ }
+    return roots;
+  }
 
-    const candidates = Array.from(
-      document.querySelectorAll('textarea, [contenteditable="true"], [contenteditable=""]')
-    ).filter((el) => {
-      if (!isVisible(el) || !el.isContentEditable && el.tagName !== 'TEXTAREA') return false;
-      const r = el.getBoundingClientRect();
-      // message box lives in the lower part of the viewport and is reasonably wide
-      return r.width > 160 && r.height > 24 && r.top > window.innerHeight * 0.15;
-    });
+  function composerStats() {
+    return {
+      prompt: document.querySelectorAll('#prompt-textarea').length,
+      editable: document.querySelectorAll(EDITABLE_SEL).length,
+      textbox: document.querySelectorAll('[role="textbox"]').length,
+      iframes: document.querySelectorAll('iframe').length
+    };
+  }
 
-    candidates.sort((a, b) => {
-      const ra = a.getBoundingClientRect();
-      const rb = b.getBoundingClientRect();
-      return rb.width * rb.height - ra.width * ra.height;
-    });
-    return candidates[0] || null;
+  function findEditor() {
+    const deep = Date.now() - lastDeepScan > 2500;
+    const roots = deep ? allRoots() : [document];
+    if (deep) lastDeepScan = Date.now();
+
+    const trySel = (sel, minW, minH, needLow) => {
+      for (const root of roots) {
+        let nodes;
+        try { nodes = root.querySelectorAll(sel); } catch (_) { continue; }
+        for (const el of nodes) {
+          if (!el || !el.isConnected) continue;
+          const r = el.getBoundingClientRect();
+          if (r.width < minW || r.height < minH) continue;
+          const st = getComputedStyle(el);
+          if (st.visibility === 'hidden' || st.display === 'none') continue;
+          const editable = el.tagName === 'TEXTAREA' || el.isContentEditable;
+          const cls = String((el.className && el.className.baseVal) || el.className || '');
+          const known = el.id === 'prompt-textarea' || el.getAttribute('role') === 'textbox' || /ProseMirror/i.test(cls);
+          if (!editable && !known) continue;
+          if (needLow && !known && r.top <= window.innerHeight * 0.15) continue;
+          return el;
+        }
+      }
+      return null;
+    };
+
+    return trySel('#prompt-textarea', 120, 20, false)
+      || trySel('.ProseMirror[contenteditable="true"], .ProseMirror[contenteditable="plaintext-only"]', 120, 20, false)
+      || trySel('[role="textbox"]', 120, 20, true)
+      || trySel(EDITABLE_SEL, 160, 24, true)
+      || null;
   }
 
   function bindEditor(editor) {
@@ -280,15 +309,22 @@
   // ---------------- read / write text ----------------
   function getText(editor) {
     if (!editor) return '';
-    if (editor.isContentEditable) {
-      return (editor.innerText || '').replace(/\u200B/g, '').trim();
+    if (editor.tagName === 'TEXTAREA' || editor.tagName === 'INPUT') {
+      return String(editor.value || '').trim();
     }
-    return String(editor.value || '').trim();
+    return (editor.innerText || editor.textContent || '').replace(/\u200B/g, '').trim();
   }
 
   function setText(editor, text) {
     if (!editor) return;
-    if (editor.isContentEditable) {
+    if (editor.tagName === 'TEXTAREA' || editor.tagName === 'INPUT') {
+      const proto = editor instanceof HTMLTextAreaElement
+        ? HTMLTextAreaElement.prototype
+        : HTMLInputElement.prototype;
+      const setter = Object.getOwnPropertyDescriptor(proto, 'value').set;
+      setter.call(editor, text);
+      editor.dispatchEvent(new Event('input', { bubbles: true }));
+    } else if (editor.isContentEditable) {
       editor.focus();
       const sel = window.getSelection();
       const range = document.createRange();
@@ -303,12 +339,9 @@
       }
       if (!ok) pasteFallback(editor, text);
     } else {
-      const proto = editor instanceof HTMLTextAreaElement
-        ? HTMLTextAreaElement.prototype
-        : HTMLInputElement.prototype;
-      const setter = Object.getOwnPropertyDescriptor(proto, 'value').set;
-      setter.call(editor, text);
-      editor.dispatchEvent(new Event('input', { bubbles: true }));
+      // known composer element that is not editable in this build — best effort
+      editor.textContent = text;
+      editor.dispatchEvent(new InputEvent('input', { bubbles: true }));
     }
     refreshChip();
   }
@@ -592,7 +625,13 @@
   async function trigger() {
     if (busy) return;
     if (!currentEditor || !currentEditor.isConnected || !isVisible(currentEditor)) {
-      showHint(NAME + ': no message box found on this page. Subtext only works on chatgpt.com — refresh the tab if you are there.');
+      const st = composerStats();
+      const any = st.prompt + st.editable + st.textbox;
+      const where = any
+        ? 'Found ' + st.prompt + ' prompt-box / ' + st.editable + ' editable / ' + st.textbox + ' textbox elements but none usable — please tell the author these numbers.'
+        : 'No editable message box exists in this page at all. Are you on a chat screen of chatgpt.com?';
+      showHint(NAME + ': message box not found — ' + where);
+      try { console.warn('[Subtext] editor discovery stats', st, 'ua', navigator.userAgent); } catch (_) {}
       return;
     }
     const text = getText(currentEditor);
@@ -668,7 +707,9 @@
     if (!bootHintShown && pollCount >= 6 && document.visibilityState === 'visible'
         && (!currentEditor || !currentEditor.isConnected)) {
       bootHintShown = true;
-      showHint(NAME + ' is active but hasn\'t found the message box yet — refresh this tab if you just installed or reloaded the extension.');
+      const st = composerStats();
+      showHint(NAME + ' is active but has not found the message box (prompt-box: ' + st.prompt + ' · editable: ' + st.editable + ' · textbox: ' + st.textbox + '). Refresh the tab if you just reloaded the extension.');
+      try { console.warn('[Subtext] boot discovery stats', st); } catch (_) {}
     }
   }, POLL_MS);
 

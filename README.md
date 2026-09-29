@@ -1,4 +1,4 @@
-# Subtext — prototype v0.1.6
+# Subtext — prototype v0.1.7
 
 **Say what you meant.** Subtext is a Chrome extension that reads the rough prompt
 you just typed into ChatGPT, infers what you *actually* want to accomplish, and
@@ -112,7 +112,7 @@ quick FYI, etc.).
 
 ## Status
 
-Prototype v0.1.6 (multi-provider: Gemini / Groq / OpenRouter / OpenAI — free
+Prototype v0.1.7 (multi-provider: Gemini / Groq / OpenRouter / OpenAI — free
 tiers supported). Not on the Chrome Web Store — load unpacked only. Rename
 pending (decision above), API key is BYO. Built fast to test the core loop;
 expect rough edges and tell the extension author everything.
