@@ -48,22 +48,38 @@ async function listModelsRaw() {
   if (!apiKey) throw new Error('No API key set yet.');
 
   if (cfg.kind === 'google') {
-    const res = await fetch(GEMINI_NATIVE_LIST_URL, {
-      headers: { 'x-goog-api-key': apiKey },
-      signal: AbortSignal.timeout(20000)
-    });
-    if (!res.ok) {
-      const detail = await errDetail(res);
-      throw new Error('Could not list models (' + res.status + ')' + detail);
+    // attempt 1+2: native list (with and without pageSize — params change over time)
+    const attempts = [
+      GEMINI_NATIVE_LIST_URL,
+      'https://generativelanguage.googleapis.com/v1beta/models'
+    ];
+    for (const url of attempts) {
+      try {
+        const res = await fetch(url, {
+          headers: { 'x-goog-api-key': apiKey },
+          signal: AbortSignal.timeout(20000)
+        });
+        if (!res.ok) continue;
+        const j = await res.json();
+        const ids = parseGeminiModels(j);
+        if (ids.length) return ids;
+      } catch (_) { /* try next */ }
     }
-    const j = await res.json();
-    return (j.models || [])
-      .filter((m) => {
-        const methods = m.supportedGenerationMethods || m.supportedActions || [];
-        return methods.indexOf('generateContent') !== -1;
-      })
-      .map((m) => String(m.name || '').replace(/^models\//, ''))
-      .filter((id) => id && !BAD_MODEL_RE.test(id));
+    // attempt 3: OpenAI-compatible surface with Bearer auth
+    try {
+      const res = await fetch(cfg.base + '/models', {
+        headers: { Authorization: 'Bearer ' + apiKey },
+        signal: AbortSignal.timeout(20000)
+      });
+      if (res.ok) {
+        const j = await res.json();
+        const ids = (j.data || [])
+          .map((m) => String(m.id || m.name || ''))
+          .filter((id) => id && !BAD_MODEL_RE.test(id));
+        if (ids.length) return ids;
+      }
+    } catch (_) { /* fall through */ }
+    return [];
   }
 
   const res = await fetch(cfg.base + '/models', {
@@ -78,6 +94,59 @@ async function listModelsRaw() {
   return (j.data || [])
     .map((m) => String(m.id || m.name || ''))
     .filter((id) => id && !BAD_MODEL_RE.test(id));
+}
+
+function parseGeminiModels(j) {
+  return (j && j.models ? j.models : [])
+    .map((m) => {
+      const name = String(m.name || '').replace(/^models\//, '');
+      const methods = m.supportedGenerationMethods || m.supportedActions || null;
+      // if the metadata shape changed, keep gemini-like ids instead of filtering everything out
+      const allowed = methods
+        ? methods.indexOf('generateContent') !== -1
+        : /gemini|gemma|learnlm/i.test(name);
+      return allowed ? name : '';
+    })
+    .filter((id) => id && !BAD_MODEL_RE.test(id))
+    .filter((id, i, a) => a.indexOf(id) === i);
+}
+
+// last-resort candidates, tried directly against chat/completions
+const CANDIDATE_MODELS = {
+  gemini: ['gemini-3.7-flash', 'gemini-3.5-flash', 'gemini-3-flash', 'gemini-flash-latest', 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.0-flash-lite'],
+  groq: ['openai/gpt-oss-120b', 'openai/gpt-oss-20b', 'llama-3.3-70b-versatile'],
+  openrouter: ['meta-llama/llama-3.3-70b-instruct:free', 'google/gemini-2.0-flash-exp:free'],
+  openai: ['gpt-4o-mini', 'gpt-4.1-mini', 'gpt-4o']
+};
+
+async function bruteForceModel(cfg, apiKey, providerKey) {
+  for (const id of (CANDIDATE_MODELS[providerKey] || [])) {
+    try {
+      const res = await tinyChat(cfg, apiKey, id);
+      if (res.ok) return id;
+    } catch (_) { /* keep trying */ }
+  }
+  return '';
+}
+
+// returns { model, note } — note explains what happened for diagnostics
+async function healModel() {
+  const { provider, cfg, apiKey } = await getConfig();
+  let models = [];
+  let note = '';
+  try {
+    models = await listModelsRaw();
+  } catch (e) {
+    note = 'model-list failed (' + String((e && e.message) || e) + ')';
+  }
+  let def = models.length ? pickDefault(models, provider) : '';
+  if (!def) {
+    def = await bruteForceModel(cfg, apiKey, provider);
+    if (def) note += (note ? '; ' : '') + 'resolved by testing candidate ids';
+  }
+  if (!def) return { model: '', note: note || 'no usable models discovered' };
+  await chrome.storage.local.set({ model: def });
+  return { model: def, note: note };
 }
 
 function pickDefault(models, providerKey) {
@@ -109,16 +178,8 @@ function pickDefault(models, providerKey) {
 }
 
 async function selfHealModel() {
-  try {
-    const { provider } = await getConfig();
-    const models = await listModelsRaw();
-    const def = pickDefault(models, provider);
-    if (def) {
-      await chrome.storage.local.set({ model: def });
-      return def;
-    }
-  } catch (_) {}
-  return null;
+  const healed = await healModel();
+  return healed.model;
 }
 
 const SYSTEM_PROMPT = [
@@ -206,13 +267,15 @@ async function pingKey() {
 
   let used = model;
   let res = await tinyChat(cfg, apiKey, used);
+  let healNote = '';
 
-  // 404 almost always means the stored model id was retired/renamed.
-  // Self-heal: discover live models, save a working default, retry once.
-  if (res.status === 404) {
-    const healed = await selfHealModel();
-    if (healed) {
-      used = healed;
+  // Any failure triggers self-heal: discover live models from the key itself,
+  // then brute-force known candidates as a last resort.
+  if (!res.ok) {
+    const healed = await healModel();
+    healNote = healed.note;
+    if (healed.model) {
+      used = healed.model;
       res = await tinyChat(cfg, apiKey, used);
     }
   }
@@ -220,7 +283,8 @@ async function pingKey() {
   if (!res.ok) {
     const detail = await errDetail(res);
     let msg = providerConfigLabel(cfg) + ' rejected the key (' + res.status + ')' + detail;
-    if (res.status === 404) msg += ' - model id may be outdated. Use "Refresh model list" in Settings.';
+    if (healNote) msg += ' [auto-fix attempt: ' + healNote + ']';
+    if (res.status === 404) msg += ' - try "Refresh model list" or pick another model in Settings.';
     throw new Error(msg);
   }
   return used;
@@ -263,11 +327,10 @@ async function improvePrompt(text, noRetry) {
   }
 
   if (!res.ok) {
-    // stale model id: discover a live one and retry once
-    if (res.status === 404) {
+    if (res.status === 404 && !noRetry) {
       const original = model;
-      const healed = await selfHealModel();
-      if (healed && healed !== original) return improvePrompt(text, true);
+      const healed = await healModel();
+      if (healed.model && healed.model !== original) return improvePrompt(text, true);
     }
     const detail = await errDetail(res);
     throw new Error(cfg.label + ' error ' + res.status + detail);
@@ -304,11 +367,13 @@ function extractJson(content) {
 }
 
 async function errDetail(res) {
+  let text = '';
+  try { text = await res.text(); } catch (_) { return ''; }
+  if (!text) return '';
   try {
-    const j = await res.json();
-    const m = j && j.error && j.error.message;
-    return m ? ': ' + m : '';
-  } catch (_) {
-    return '';
-  }
+    const j = JSON.parse(text);
+    const m = j && j.error && (j.error.message || j.error.status);
+    if (m) return ': ' + String(m).slice(0, 300);
+  } catch (_) {}
+  return ': ' + text.slice(0, 200);
 }
