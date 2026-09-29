@@ -154,6 +154,23 @@
     .btn.primary:hover { filter: brightness(1.12); }
     .btn.ghost { background: transparent; border-color: var(--line); color: var(--muted); }
     .btn.ghost:hover { color: var(--fg); }
+
+    .hint {
+      position: fixed;
+      left: 50%;
+      bottom: 96px;
+      transform: translateX(-50%);
+      z-index: 2147483602;
+      background: var(--chip-bg);
+      color: #fff;
+      font: 500 12.5px/1.45 system-ui, -apple-system, 'Segoe UI', sans-serif;
+      padding: 9px 14px;
+      border-radius: 10px;
+      box-shadow: 0 6px 18px rgba(17, 24, 39, 0.25);
+      max-width: min(480px, calc(100vw - 32px));
+      text-align: center;
+    }
+    @media (prefers-color-scheme: dark) { .hint { color: #111827; } }
   `;
 
   // ---------------- state ----------------
@@ -168,6 +185,10 @@
   let segments = [];           // [{label, text}]
   let activeSeg = 0;
   let chipFlashTimer = null;
+  let hintEl = null;
+  let hintTimer = null;
+  let bootHintShown = false;
+  let pollCount = 0;
   const boundEditors = new WeakSet();
 
   // ---------------- utils ----------------
@@ -198,8 +219,22 @@
 
   // ---------------- editor discovery ----------------
   function findEditor() {
-    const known = document.querySelector('#prompt-textarea');
-    if (known && isVisible(known)) return known;
+    // ChatGPT has shipped several composer shapes; try known ids/classes first.
+    const knownSelectors = [
+      '#prompt-textarea',
+      '.ProseMirror[contenteditable="true"]',
+      'form [contenteditable="true"]',
+      'textarea[data-id]'
+    ];
+    for (const sel of knownSelectors) {
+      const els = document.querySelectorAll(sel);
+      for (const el of els) {
+        if (!isVisible(el)) continue;
+        if (!el.isContentEditable && el.tagName !== 'TEXTAREA') continue;
+        const r = el.getBoundingClientRect();
+        if (r.width > 120 && r.height > 20) return el;
+      }
+    }
 
     const candidates = Array.from(
       document.querySelectorAll('textarea, [contenteditable="true"], [contenteditable=""]')
@@ -207,7 +242,7 @@
       if (!isVisible(el) || !el.isContentEditable && el.tagName !== 'TEXTAREA') return false;
       const r = el.getBoundingClientRect();
       // message box lives in the lower part of the viewport and is reasonably wide
-      return r.width > 200 && r.height > 28 && r.top > window.innerHeight * 0.25;
+      return r.width > 160 && r.height > 24 && r.top > window.innerHeight * 0.15;
     });
 
     candidates.sort((a, b) => {
@@ -319,7 +354,21 @@
     panel = ui.el;
     root.appendChild(panel);
 
+    hintEl = document.createElement('div');
+    hintEl.className = 'hint';
+    hintEl.hidden = true;
+    root.appendChild(hintEl);
+
     (document.body || document.documentElement).appendChild(host);
+  }
+
+  // small feedback pill so no failure is ever silent
+  function showHint(msg) {
+    ensureUI();
+    hintEl.textContent = msg;
+    hintEl.hidden = false;
+    if (hintTimer) clearTimeout(hintTimer);
+    hintTimer = setTimeout(() => { hintEl.hidden = true; }, 3600);
   }
 
   // ---------------- UI: panel ----------------
@@ -542,8 +591,15 @@
   // ---------------- main flow ----------------
   async function trigger() {
     if (busy) return;
-    const text = currentEditor ? getText(currentEditor) : '';
-    if (text.length < MIN_CHARS) return;
+    if (!currentEditor || !currentEditor.isConnected || !isVisible(currentEditor)) {
+      showHint(NAME + ': no message box found on this page. Subtext only works on chatgpt.com — refresh the tab if you are there.');
+      return;
+    }
+    const text = getText(currentEditor);
+    if (text.length < MIN_CHARS) {
+      showHint(NAME + ': type a little more first — Improve needs at least ' + MIN_CHARS + ' characters.');
+      return;
+    }
 
     busy = true;
     setChipBusy(true);
@@ -604,9 +660,16 @@
   bodyMO.observe(document.documentElement, { childList: true, subtree: true });
 
   setInterval(() => {
+    pollCount++;
     ensureUI();
     if (!currentEditor || !currentEditor.isConnected) bindEditor(findEditor());
     refreshChip();
+    // once, ~4s after load: say something if we still have not found an editor
+    if (!bootHintShown && pollCount >= 6 && document.visibilityState === 'visible'
+        && (!currentEditor || !currentEditor.isConnected)) {
+      bootHintShown = true;
+      showHint(NAME + ' is active but hasn\'t found the message box yet — refresh this tab if you just installed or reloaded the extension.');
+    }
   }, POLL_MS);
 
   // boot
