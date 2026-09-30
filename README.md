@@ -60,12 +60,19 @@ no accounts, no servers of ours.
 
 1. Open [chatgpt.com](https://chatgpt.com) and type a rough, messy prompt (8+ characters).
 2. A small **Improve** chip appears above the message box (top-right corner).
-3. Click it — or press **Alt+Shift+I**.
-4. The panel shows:
+
+Four ways to trigger a suggestion — no hotkey needed:
+
+- **Pause while typing** — auto-suggest pops up on its own ~2s after you stop (toggle in Settings)
+- **Tab** inside the message box
+- Click the **Improve** chip
+- **Alt+Shift+I** (always works)
+
+3. The panel shows:
    - **You seem to want** — one line describing your inferred intent
    - **Primary** — the improved prompt
    - **Variant chips** — 2 alternative readings of what you meant
-5. **Use this prompt** (or Ctrl+Enter) replaces your draft in the box. **Esc** / **Dismiss** closes it.
+4. **Use this prompt** (or Ctrl+Enter) replaces your draft in the box. **Esc** blurs the box / closes the panel, **Dismiss** closes it.
 
 ### Try it with
 

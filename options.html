@@ -80,6 +80,12 @@
       <input type="text" id="customModel" placeholder="e.g. my-org/my-model" />
     </div>
 
+    <label for="autoSuggest" style="display:flex;align-items:center;gap:10px;margin-top:20px">
+      <input type="checkbox" id="autoSuggest" style="width:auto" checked />
+      <span>Auto-suggest while typing (appears after a short pause)</span>
+    </label>
+    <p class="hint">Ways to get a suggestion: just pause while typing · press <b>Tab</b> in the message box · click the <b>Improve</b> chip · press <b>Alt+Shift+I</b>. Esc blurs the box, Esc again closes the panel, Ctrl+Enter accepts.</p>
+
     <div class="row">
       <button class="primary" id="save">Save</button>
       <button class="ghost" id="test">Test key</button>
@@ -89,8 +95,8 @@
     <div class="note">
       <b>Free setup:</b> pick <b>Google Gemini</b>, click the key link above (Google AI Studio,
       no credit card), create an API key, paste it, Save, Test. Then: open <b>chatgpt.com</b>,
-      type a rough prompt, and click the small <b>Improve</b> chip above the message box — or
-      press <b>Alt+Shift+I</b>. Esc closes the panel, Ctrl+Enter accepts a suggestion.
+      type a rough prompt and pause — Subtext pops up on its own. Or press <b>Tab</b> in the
+      message box, click the small <b>Improve</b> chip, or use <b>Alt+Shift+I</b>.
     </div>
   </div>
   <script src="options.js"></script>

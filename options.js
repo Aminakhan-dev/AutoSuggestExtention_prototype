@@ -73,9 +73,10 @@ function syncProviderUI() {
 }
 
 async function load() {
-  const { provider = 'gemini', apiKey = '', model = '' } = await chrome.storage.local.get(['provider', 'apiKey', 'model']);
+  const { provider = 'gemini', apiKey = '', model = '', autoSuggest = true } = await chrome.storage.local.get(['provider', 'apiKey', 'model', 'autoSuggest']);
   $('provider').value = provider;
   $('apiKey').value = apiKey;
+  $('autoSuggest').checked = autoSuggest !== false;
   syncProviderUI();
   rebuildModelSelect(provider, model);
 }
@@ -136,7 +137,12 @@ async function save() {
   if (model === 'custom') {
     model = $('customModel').value.trim() || PROVIDERS[provider].defaultModel;
   }
-  await chrome.storage.local.set({ provider: provider, apiKey: key, model: model });
+  await chrome.storage.local.set({
+    provider: provider,
+    apiKey: key,
+    model: model,
+    autoSuggest: !!$('autoSuggest').checked
+  });
   setStatus('Saved.', 'ok');
 }
 

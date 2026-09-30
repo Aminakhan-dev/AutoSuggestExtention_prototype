@@ -174,6 +174,10 @@
       text-align: center;
     }
     @media (prefers-color-scheme: dark) { .hint { color: #111827; } }
+
+    /* our classes set display explicitly (flex/inline-flex), which would beat the
+       UA's [hidden] rule and leave ghost rows on screen — force hidden to win */
+    [hidden] { display: none !important; }
   `;
 
   // ---------------- state ----------------
@@ -195,6 +199,15 @@
   let lastDeepScan = 0;
   let lastFocusedEditable = null;  // the box the user last typed/clicked in
   let lastScanReport = [];         // per-candidate scores + rejection reasons
+  // auto-suggest state (typing-pause trigger)
+  let autoEnabled = true;
+  let autoTimer = null;
+  let autoLastRun = 0;
+  let autoLastText = '';
+  let autoFailUntil = 0;       // backoff after an auto attempt failed
+  const AUTO_DEBOUNCE_MS = 1800;
+  const AUTO_COOLDOWN_MS = 25000;
+  const AUTO_FAIL_BACKOFF_MS = 90000;
   const boundEditors = new WeakSet();
 
   const EDITABLE_SEL = 'textarea, [contenteditable="true"], [contenteditable="plaintext-only"], [contenteditable=""]';
@@ -255,6 +268,55 @@
     } catch (_) { /* keep scanning */ }
     return false;
   }
+
+  // ---------------- auto-suggest (typing pause trigger) ----------------
+  // Pure decision gate so it can be unit-tested without a DOM.
+  function shouldAutoRun(st) {
+    if (!st.enabled) return { ok: false, why: 'off' };
+    if (st.busy) return { ok: false, why: 'busy' };
+    if (st.now < st.failUntil) return { ok: false, why: 'backoff' };
+    if (st.now - st.lastRun < st.cooldownMs) return { ok: false, why: 'cooldown' };
+    if (!st.text || st.text.length < st.minChars) return { ok: false, why: 'short' };
+    if (st.text === st.lastText) return { ok: false, why: 'unchanged' };
+    return { ok: true, why: 'go' };
+  }
+
+  function scheduleAuto() {
+    if (!autoEnabled) return;
+    if (autoTimer) clearTimeout(autoTimer);
+    autoTimer = setTimeout(maybeAutoSuggest, AUTO_DEBOUNCE_MS);
+  }
+
+  function maybeAutoSuggest() {
+    const text = currentEditor && currentEditor.isConnected ? getText(currentEditor) : '';
+    const gate = shouldAutoRun({
+      enabled: autoEnabled,
+      busy: busy,
+      now: Date.now(),
+      failUntil: autoFailUntil,
+      lastRun: autoLastRun,
+      cooldownMs: AUTO_COOLDOWN_MS,
+      text: text,
+      lastText: autoLastText,
+      minChars: MIN_CHARS
+    });
+    if (!gate.ok) return;
+    autoLastRun = Date.now();
+    autoLastText = text;
+    trigger(true);
+  }
+
+  // settings: read once at boot, then follow live changes from the options page
+  try {
+    chrome.storage.local.get(['autoSuggest'], (r) => {
+      autoEnabled = !(r && r.autoSuggest === false);
+    });
+    if (chrome.storage.onChanged && chrome.storage.onChanged.addListener) {
+      chrome.storage.onChanged.addListener((changes, area) => {
+        if (area === 'local' && changes.autoSuggest) autoEnabled = changes.autoSuggest.newValue !== false;
+      });
+    }
+  } catch (_) {}
 
   // ---------------- editor discovery ----------------
   // ChatGPT has shipped many composer shapes (textarea, ProseMirror div,
@@ -400,13 +462,14 @@
     }
 
     if (!boundEditors.has(editor)) {
-      editor.addEventListener('input', () => refreshChip());
+      editor.addEventListener('input', () => { refreshChip(); scheduleAuto(); });
       editor.addEventListener('focus', () => refreshChip());
       boundEditors.add(editor);
     }
 
     editorMO = new MutationObserver(() => {
       refreshChip();
+      scheduleAuto();
       if (panel && !panel.hidden) positionPanel();
     });
     editorMO.observe(editor, { childList: true, characterData: true, subtree: true });
@@ -450,6 +513,7 @@
       editor.textContent = text;
       editor.dispatchEvent(new InputEvent('input', { bubbles: true }));
     }
+    autoLastText = text; // don't auto-suggest again for text we just wrote
     refreshChip();
   }
 
@@ -478,7 +542,7 @@
     chip.type = 'button';
     chip.className = 'chip';
     chip.hidden = true;
-    chip.title = 'Subtext: suggest a sharper version (' + 'Alt+Shift+I' + ')';
+    chip.title = 'Subtext: suggest a sharper version (Tab or Alt+Shift+I)';
     chip.innerHTML =
       '<svg class="spark" width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">' +
       '<path d="M12 2l2.2 7.8L22 12l-7.8 2.2L12 22l-2.2-7.8L2 12l7.8-2.2L12 2z" fill="currentColor"/></svg>' +
@@ -658,6 +722,7 @@
   function hidePanel() {
     if (!panel) return;
     panel.hidden = true;
+    refreshChip();
   }
 
   function applyCurrent() {
@@ -696,10 +761,11 @@
     if (!chip) return;
     const ed = currentEditor;
     const text = ed && ed.isConnected ? getText(ed) : '';
-    const show = !!ed && ed.isConnected && isVisible(ed) && text.length >= MIN_CHARS && !busy;
+    const panelOpen = panel && !panel.hidden;
+    // chip is the quiet always-on affordance; the panel takes over once open
+    const show = !!ed && ed.isConnected && isVisible(ed) && text.length >= MIN_CHARS && !panelOpen;
     chip.hidden = !show;
     if (show) positionChip();
-    if (!show && panel && !panel.hidden && !busy) hidePanel();
   }
 
   // ---------------- positioning ----------------
@@ -729,9 +795,9 @@
   }
 
   // ---------------- main flow ----------------
-  async function trigger() {
+  async function trigger(auto) {
     if (busy) return;
-    // live re-discovery at hotkey time — never trust a stale binding
+    // live re-discovery at trigger time — never trust a stale binding
     if (!currentEditor || !currentEditor.isConnected || !isVisible(currentEditor)) {
       const live = findEditor();
       if (live) bindEditor(live);
@@ -772,15 +838,18 @@
     setChipBusy(false);
 
     if (!res) {
+      if (auto) autoFailUntil = Date.now() + AUTO_FAIL_BACKOFF_MS;
       refreshChip();
       showPanelError('Could not reach the extension background. Reload this page and try again.');
       return;
     }
     if (!res.ok) {
+      if (auto) autoFailUntil = Date.now() + AUTO_FAIL_BACKOFF_MS;
       refreshChip();
       showPanelError(String(res.error || 'Unknown error.'));
       return;
     }
+    autoFailUntil = 0;
 
     segments = [{ label: 'Primary', text: res.data.primary }].concat(
       (res.data.variants || []).map((v) => ({ label: v.label || 'Variant', text: v.text }))
@@ -800,6 +869,12 @@
       hidePanel();
       return;
     }
+    // Esc with panel closed = leave the composer (escape hatch from Tab capture)
+    if (e.key === 'Escape' && currentEditor && currentEditor.isConnected
+        && currentEditor.contains && currentEditor.contains(document.activeElement)) {
+      try { document.activeElement.blur(); } catch (_) {}
+      return;
+    }
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && panel && !panel.hidden) {
       e.preventDefault();
       applyCurrent();
@@ -808,6 +883,20 @@
     if (e.altKey && e.shiftKey && !e.ctrlKey && !e.metaKey && e.code === 'KeyI') {
       e.preventDefault();
       trigger();
+      return;
+    }
+    // Tab inside a composer with enough text = trigger a suggestion
+    if (e.key === 'Tab' && !e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
+      const ed = currentEditor;
+      const ae = document.activeElement;
+      if (ed && ed.isConnected && ae && (ae === ed || (ed.contains && ed.contains(ae)))
+          && !busy && panel && panel.hidden) {
+        if (getText(ed).length >= MIN_CHARS) {
+          e.preventDefault();
+          e.stopPropagation();
+          trigger();
+        }
+      }
     }
   }, true);
 
