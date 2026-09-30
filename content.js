@@ -8,6 +8,9 @@
   'use strict';
 
   const NAME = 'Subtext';
+  // stamped into every pill/console line so the running build is never a mystery
+  const VERSION = (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.getManifest)
+    ? String(chrome.runtime.getManifest().version || '') : '';
   const MIN_CHARS = 8;      // don't offer suggestions on tiny inputs
   const POLL_MS = 700;      // SPA safety net: rediscover editor, refresh chip
 
@@ -748,13 +751,13 @@
       } else {
         where = 'No editable message box exists in this page at all. Are you on a chat screen of chatgpt.com?';
       }
-      showHint(NAME + ': message box not found — ' + where);
-      try { console.warn('[Subtext] scan report', JSON.stringify(lastScanReport || [], null, 1), 'stats', st, 'ua', navigator.userAgent); } catch (_) {}
+      showHint(NAME + ' v' + VERSION + ': message box not found — ' + where);
+      try { console.warn('[Subtext v' + VERSION + '] scan report', JSON.stringify(lastScanReport || [], null, 1), 'stats', st, 'ua', navigator.userAgent); } catch (_) {}
       return;
     }
     const text = getText(currentEditor);
     if (text.length < MIN_CHARS) {
-      showHint(NAME + ': type a little more first — Improve needs at least ' + MIN_CHARS + ' characters.');
+      showHint(NAME + ' v' + VERSION + ': type a little more first — Improve needs at least ' + MIN_CHARS + ' characters.');
       return;
     }
 
@@ -826,8 +829,8 @@
         && (!currentEditor || !currentEditor.isConnected)) {
       bootHintShown = true;
       const st = composerStats();
-      showHint(NAME + ' is active but has not found the message box (prompt-box: ' + st.prompt + ' · editable: ' + st.editable + ' · textbox: ' + st.textbox + ' · iframes: ' + st.iframes + '). Click inside the message box once, then press Alt+Shift+I. Refresh the tab if you just reloaded the extension.');
-      try { console.warn('[Subtext] boot discovery stats', st); } catch (_) {}
+      showHint(NAME + ' v' + VERSION + ' is active but has not found the message box (prompt-box: ' + st.prompt + ' · editable: ' + st.editable + ' · textbox: ' + st.textbox + ' · iframes: ' + st.iframes + '). Click inside the message box once, then press Alt+Shift+I. Refresh the tab if you just reloaded the extension.');
+      try { console.warn('[Subtext v' + VERSION + '] boot discovery stats', st); } catch (_) {}
     }
   }, POLL_MS);
 
