@@ -190,6 +190,8 @@
   let bootHintShown = false;
   let pollCount = 0;
   let lastDeepScan = 0;
+  let lastFocusedEditable = null;  // the box the user last typed/clicked in
+  let lastScanReport = [];         // per-candidate scores + rejection reasons
   const boundEditors = new WeakSet();
 
   const EDITABLE_SEL = 'textarea, [contenteditable="true"], [contenteditable="plaintext-only"], [contenteditable=""]';
@@ -218,6 +220,37 @@
         resolve(null);
       }
     });
+  }
+
+  // The box the user is actually typing in is the best signal we can have —
+  // it survives every class/id rename ChatGPT will ever ship.
+  document.addEventListener('focusin', (e) => {
+    const t = e.target;
+    if (!t || !t.tagName) return;
+    const tag = t.tagName;
+    if (tag === 'TEXTAREA' || tag === 'INPUT' || t.isContentEditable) {
+      lastFocusedEditable = t;
+    }
+  }, true);
+
+  function deepActiveElement() {
+    let a = document.activeElement;
+    let hops = 0;
+    while (a && a.shadowRoot && a.shadowRoot.activeElement && hops < 5) {
+      a = a.shadowRoot.activeElement;
+      hops++;
+    }
+    return a;
+  }
+
+  function isPlausibleEditor(el) {
+    if (!el || !el.isConnected) return false;
+    try {
+      if (el.tagName === 'TEXTAREA') return !el.disabled && !el.readOnly;
+      if (el.tagName === 'INPUT') return !el.disabled && !el.readOnly;
+      if (el.isContentEditable) return true;
+    } catch (_) { /* keep scanning */ }
+    return false;
   }
 
   // ---------------- editor discovery ----------------
@@ -249,37 +282,108 @@
     };
   }
 
+  const CANDIDATE_SELS = [
+    '#prompt-textarea',
+    '.ProseMirror',
+    '[role="textbox"]',
+    'textarea',
+    '[contenteditable="true"], [contenteditable="plaintext-only"], [contenteditable=""]',
+    'input[type="text"], input[type="search"], input:not([type])'
+  ];
+
+  function candidateElements(roots) {
+    const seen = new Set();
+    const out = [];
+    const push = (el) => { if (el && !seen.has(el)) { seen.add(el); out.push(el); } };
+    for (const rootEl of roots) {
+      for (const sel of CANDIDATE_SELS) {
+        let nodes;
+        try { nodes = rootEl.querySelectorAll(sel); } catch (_) { continue; }
+        for (const el of nodes) push(el);
+      }
+    }
+    return out;
+  }
+
+  // Score every candidate instead of hard-rejecting. The best one wins;
+  // rejected ones keep their reasons so the pill/console can name them.
+  function scoreCandidate(el) {
+    const reasons = [];
+    const id = el.id || '';
+    const role = (el.getAttribute && el.getAttribute('role')) || '';
+    let cls = '';
+    try { cls = String((el.className && el.className.baseVal) || el.className || ''); } catch (_) {}
+    const known = id === 'prompt-textarea' || role === 'textbox' || /ProseMirror/i.test(cls);
+    let score = 0;
+
+    if (id === 'prompt-textarea') score += 100;
+    if (/ProseMirror/i.test(cls)) score += 80;
+    if (role === 'textbox') score += 60;
+
+    if (el.tagName === 'TEXTAREA') score += 40;
+    else if (el.tagName === 'INPUT') score += 15;
+    else if (el.isContentEditable) score += 40;
+    else if (!known) { reasons.push('not-editable'); return { el, score: -100, reasons }; }
+
+    // intent signals: what the user is typing in wins over everything
+    try {
+      const act = deepActiveElement();
+      if (el === act) { score += 500; reasons.push('active-element'); }
+      else if (el === lastFocusedEditable) { score += 300; reasons.push('last-focused'); }
+      else if (act && act.contains && act.contains(el)) { score += 500; reasons.push('inside-active'); }
+      else if (el.contains && act && el.contains(act)) { score += 500; reasons.push('contains-active'); }
+    } catch (_) {}
+
+    // geometry + visibility
+    let r = { width: 0, height: 0, top: 0 };
+    try { r = el.getBoundingClientRect(); } catch (_) {}
+    let st = null;
+    try { st = getComputedStyle(el); } catch (_) {}
+    if (!st || st.display === 'none' || st.visibility === 'hidden') {
+      score -= 120;
+      reasons.push('hidden(' + (st ? st.display + '/' + st.visibility : 'no-style') + ')');
+    } else {
+      score += 40;
+    }
+
+    const w = r.width || 0, h = r.height || 0;
+    if (w >= 120 && h >= 20) score += 20;
+    const area = w * h;
+    if (area > 0) score += Math.min(30, Math.round(Math.log10(area + 1) * 7));
+    else { score -= 30; reasons.push('zero-size'); }
+
+    const vh = window.innerHeight || 800;
+    if (r.top >= vh * 0.12 && r.top <= vh) score += 10;
+    if (r.top < -50 || r.top > vh * 1.5) { score -= 60; reasons.push('offscreen'); }
+    try { if (el.closest && el.closest('[aria-hidden="true"]')) { score -= 30; reasons.push('aria-hidden-ancestor'); } } catch (_) {}
+    try { if (el.disabled || el.readOnly) { score -= 80; reasons.push('disabled'); } } catch (_) {}
+
+    return {
+      el, score, reasons,
+      tag: String(el.tagName || '').toLowerCase(),
+      id: id.slice(0, 40),
+      cls: cls.slice(0, 60),
+      w: Math.round(w), h: Math.round(h), top: Math.round(r.top)
+    };
+  }
+
   function findEditor() {
     const deep = Date.now() - lastDeepScan > 2500;
     const roots = deep ? allRoots() : [document];
     if (deep) lastDeepScan = Date.now();
 
-    const trySel = (sel, minW, minH, needLow) => {
-      for (const root of roots) {
-        let nodes;
-        try { nodes = root.querySelectorAll(sel); } catch (_) { continue; }
-        for (const el of nodes) {
-          if (!el || !el.isConnected) continue;
-          const r = el.getBoundingClientRect();
-          if (r.width < minW || r.height < minH) continue;
-          const st = getComputedStyle(el);
-          if (st.visibility === 'hidden' || st.display === 'none') continue;
-          const editable = el.tagName === 'TEXTAREA' || el.isContentEditable;
-          const cls = String((el.className && el.className.baseVal) || el.className || '');
-          const known = el.id === 'prompt-textarea' || el.getAttribute('role') === 'textbox' || /ProseMirror/i.test(cls);
-          if (!editable && !known) continue;
-          if (needLow && !known && r.top <= window.innerHeight * 0.15) continue;
-          return el;
-        }
-      }
-      return null;
-    };
+    // 0) the box the user clicked/typed in is authoritative — no size or
+    //    visibility gate here; their focus IS the intent.
+    const act = deepActiveElement();
+    if (isPlausibleEditor(act)) return act;
+    if (isPlausibleEditor(lastFocusedEditable)) return lastFocusedEditable;
 
-    return trySel('#prompt-textarea', 120, 20, false)
-      || trySel('.ProseMirror[contenteditable="true"], .ProseMirror[contenteditable="plaintext-only"]', 120, 20, false)
-      || trySel('[role="textbox"]', 120, 20, true)
-      || trySel(EDITABLE_SEL, 160, 24, true)
-      || null;
+    // 1) otherwise score everything and take the best
+    const scored = candidateElements(roots).map(scoreCandidate)
+      .sort((a, b) => b.score - a.score);
+    lastScanReport = scored;
+    const best = scored[0];
+    return best && best.score >= 60 ? best.el : null;
   }
 
   function bindEditor(editor) {
@@ -624,14 +728,28 @@
   // ---------------- main flow ----------------
   async function trigger() {
     if (busy) return;
+    // live re-discovery at hotkey time — never trust a stale binding
+    if (!currentEditor || !currentEditor.isConnected || !isVisible(currentEditor)) {
+      const live = findEditor();
+      if (live) bindEditor(live);
+    }
     if (!currentEditor || !currentEditor.isConnected || !isVisible(currentEditor)) {
       const st = composerStats();
       const any = st.prompt + st.editable + st.textbox;
-      const where = any
-        ? 'Found ' + st.prompt + ' prompt-box / ' + st.editable + ' editable / ' + st.textbox + ' textbox elements but none usable — please tell the author these numbers.'
-        : 'No editable message box exists in this page at all. Are you on a chat screen of chatgpt.com?';
+      let where;
+      if (any) {
+        const top = (lastScanReport || []).slice(0, 2).map((c) =>
+          (c.tag || '?') + (c.id ? '#' + c.id : '') + ' ' + (c.w || 0) + 'x' + (c.h || 0) +
+          (c.reasons && c.reasons.length ? ' [' + c.reasons.slice(0, 2).join('; ') + ']' : ' [score ' + c.score + ']')
+        ).join('  |  ');
+        where = 'Found ' + st.prompt + ' prompt-box / ' + st.editable + ' editable / ' +
+          st.textbox + ' textbox / ' + st.iframes + ' iframe elements. Best: ' + (top || 'none scored') +
+          '. Press F12 > Console and send the [Subtext] report to the author.';
+      } else {
+        where = 'No editable message box exists in this page at all. Are you on a chat screen of chatgpt.com?';
+      }
       showHint(NAME + ': message box not found — ' + where);
-      try { console.warn('[Subtext] editor discovery stats', st, 'ua', navigator.userAgent); } catch (_) {}
+      try { console.warn('[Subtext] scan report', JSON.stringify(lastScanReport || [], null, 1), 'stats', st, 'ua', navigator.userAgent); } catch (_) {}
       return;
     }
     const text = getText(currentEditor);
@@ -708,7 +826,7 @@
         && (!currentEditor || !currentEditor.isConnected)) {
       bootHintShown = true;
       const st = composerStats();
-      showHint(NAME + ' is active but has not found the message box (prompt-box: ' + st.prompt + ' · editable: ' + st.editable + ' · textbox: ' + st.textbox + '). Refresh the tab if you just reloaded the extension.');
+      showHint(NAME + ' is active but has not found the message box (prompt-box: ' + st.prompt + ' · editable: ' + st.editable + ' · textbox: ' + st.textbox + ' · iframes: ' + st.iframes + '). Click inside the message box once, then press Alt+Shift+I. Refresh the tab if you just reloaded the extension.');
       try { console.warn('[Subtext] boot discovery stats', st); } catch (_) {}
     }
   }, POLL_MS);
