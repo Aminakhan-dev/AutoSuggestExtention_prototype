@@ -1,5 +1,6 @@
 /*
- * Subtext — content script (chatgpt.com)
+ * Subtext — content script
+ * Runs on ChatGPT, Claude, Gemini, Perplexity and DeepSeek.
  * Detects the message box, shows a subtle "Improve" chip, and renders the
  * suggestion panel inside a Shadow DOM so host page styles cannot clash.
  */
@@ -13,6 +14,8 @@
     ? String(chrome.runtime.getManifest().version || '') : '';
   const MIN_CHARS = 8;      // don't offer suggestions on tiny inputs
   const POLL_MS = 700;      // SPA safety net: rediscover editor, refresh chip
+  // length styles for suggestions (user-pickable in the panel, v0.3.0)
+  const STYLES = [['concise', 'Concise'], ['balanced', 'Balanced'], ['detailed', 'Detailed']];
 
   const CSS_TEXT = `
     :host { all: initial; }
@@ -81,6 +84,11 @@
       box-shadow: var(--shadow);
       font: 400 13.5px/1.55 system-ui, -apple-system, 'Segoe UI', sans-serif;
       padding: 14px 16px 12px;
+      animation: subtext-pop .14s ease-out;
+    }
+    @keyframes subtext-pop {
+      from { opacity: 0; transform: translateY(8px) scale(.985); }
+      to { opacity: 1; transform: none; }
     }
 
     .head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
@@ -146,6 +154,16 @@
     .seg:hover { color: var(--fg); }
     .seg.active { background: var(--accent); border-color: var(--accent); color: #fff; }
 
+    .styles { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 10px; }
+    .styles-label {
+      font-size: 10.5px; text-transform: uppercase; letter-spacing: .8px;
+      color: var(--muted); font-weight: 600; margin-right: 2px;
+    }
+    .kbd-hint {
+      margin-top: 8px; color: var(--muted); font-size: 11px; line-height: 1.5;
+    }
+    .kbd-hint b { font-weight: 600; color: var(--fg); }
+
     .foot { display: flex; gap: 8px; align-items: center; }
     .btn {
       font: 600 12.5px/1 system-ui, -apple-system, sans-serif;
@@ -205,7 +223,10 @@
   let autoLastRun = 0;
   let autoLastText = '';
   let autoFailUntil = 0;       // backoff after an auto attempt failed
-  const AUTO_DEBOUNCE_MS = 1800;
+  // v0.3.0: length style (sticky for the page session) + keyboard armed-state
+  let currentStyle = 'balanced';
+  let resultForText = '';      // draft text the current panel result was built from
+  const AUTO_DEBOUNCE_MS = 1200;   // v0.3.0: snappier (was 1800)
   const AUTO_COOLDOWN_MS = 25000;
   const AUTO_FAIL_BACKOFF_MS = 90000;
   const boundEditors = new WeakSet();
@@ -349,7 +370,9 @@
 
   const CANDIDATE_SELS = [
     '#prompt-textarea',
+    '#chat-input',
     '.ProseMirror',
+    '.ql-editor',
     '[role="textbox"]',
     'textarea',
     '[contenteditable="true"], [contenteditable="plaintext-only"], [contenteditable=""]',
@@ -378,11 +401,14 @@
     const role = (el.getAttribute && el.getAttribute('role')) || '';
     let cls = '';
     try { cls = String((el.className && el.className.baseVal) || el.className || ''); } catch (_) {}
-    const known = id === 'prompt-textarea' || role === 'textbox' || /ProseMirror/i.test(cls);
+    const known = id === 'prompt-textarea' || id === 'chat-input' || role === 'textbox'
+      || /ProseMirror|ql-editor/i.test(cls);
     let score = 0;
 
     if (id === 'prompt-textarea') score += 100;
+    if (id === 'chat-input') score += 100;
     if (/ProseMirror/i.test(cls)) score += 80;
+    if (/ql-editor/i.test(cls)) score += 80;
     if (role === 'textbox') score += 60;
 
     if (el.tagName === 'TEXTAREA') score += 40;
@@ -626,6 +652,30 @@
       '<span class="intent"></span>';
     el.appendChild(intentRow);
 
+    // length picker (v0.3.0): Concise / Balanced / Detailed — click re-runs
+    // the same draft with a length hint; the choice sticks for the session
+    const stylesRow = document.createElement('div');
+    stylesRow.className = 'styles';
+    stylesRow.hidden = true;
+    const stylesLabel = document.createElement('span');
+    stylesLabel.className = 'styles-label';
+    stylesLabel.textContent = 'Length';
+    stylesRow.appendChild(stylesLabel);
+    const styleBtns = {};
+    STYLES.forEach(([key, label]) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'seg';
+      b.textContent = label;
+      b.title = key === 'concise' ? 'Rewrite as a super short, tight prompt'
+        : key === 'detailed' ? 'Rewrite as a long, descriptive prompt'
+        : 'Default length — matches effort to the draft';
+      b.addEventListener('click', () => rerunWithStyle(key));
+      styleBtns[key] = b;
+      stylesRow.appendChild(b);
+    });
+    el.appendChild(stylesRow);
+
     const body = document.createElement('div');
     body.className = 'body';
     el.appendChild(body);
@@ -650,6 +700,11 @@
     foot.appendChild(dismiss);
     el.appendChild(foot);
 
+    const kbd = document.createElement('div');
+    kbd.className = 'kbd-hint';
+    kbd.innerHTML = '<b>1</b>/<b>2</b>/<b>3</b> pick variant &nbsp;·&nbsp; <b>C</b> copy &nbsp;·&nbsp; <b>Ctrl+Enter</b> use &nbsp;·&nbsp; <b>Esc</b> close';
+    el.appendChild(kbd);
+
     const closeBtn = head.querySelector('.close');
     closeBtn.addEventListener('click', hidePanel);
 
@@ -661,6 +716,8 @@
       loading: loading,
       intentRow: intentRow,
       intent: intentRow.querySelector('.intent'),
+      stylesRow: stylesRow,
+      styleBtns: styleBtns,
       body: body,
       segs: segs,
       use: use
@@ -672,6 +729,8 @@
     ui.err.hidden = true;
     ui.loading.hidden = false;
     ui.intentRow.hidden = true;
+    ui.stylesRow.hidden = true;
+    resultForText = '';            // disarm 1/2/3/C while loading
     ui.body.textContent = '';
     ui.segs.innerHTML = '';
     panel.hidden = false;
@@ -682,6 +741,7 @@
     panel.hidden = false;
     ui.loading.hidden = true;
     ui.intentRow.hidden = true;
+    ui.stylesRow.hidden = true;
     ui.body.textContent = '';
     ui.segs.innerHTML = '';
     ui.errText.textContent = message;
@@ -690,12 +750,48 @@
     positionPanel();
   }
 
+  function setActiveSeg(i) {
+    if (!segments[i]) return;
+    activeSeg = i;
+    Array.prototype.forEach.call(ui.segs.children, (c, j) => {
+      c.classList.toggle('active', j === i);
+    });
+    ui.body.textContent = segments[i].text;
+    positionPanel();
+  }
+
+  function paintStyles() {
+    STYLES.forEach(([key]) => {
+      const b = ui.styleBtns[key];
+      if (b) b.classList.toggle('active', key === currentStyle);
+    });
+  }
+
+  // re-run the SAME draft with a different length style (Concise/Balanced/Detailed)
+  function rerunWithStyle(key) {
+    if (busy) return;
+    if (currentStyle !== key) {
+      currentStyle = key;
+      paintStyles();
+    }
+    runSuggestion(false);
+  }
+
+  // pure helper: keyboard '1'/'2'/'3' -> segment index, or null (unit-tested)
+  function segIndexForKey(key, segCount) {
+    if (!/^[123]$/.test(String(key))) return null;
+    const i = parseInt(key, 10) - 1;
+    return i < segCount ? i : null;
+  }
+
   function showPanelResult(intentText) {
     panel.hidden = false;
     ui.err.hidden = true;
     ui.loading.hidden = true;
     ui.intentRow.hidden = !intentText;
     ui.intent.textContent = intentText;
+    ui.stylesRow.hidden = false;
+    paintStyles();
 
     ui.segs.innerHTML = '';
     segments.forEach((s, i) => {
@@ -704,14 +800,7 @@
       b.className = 'seg' + (i === activeSeg ? ' active' : '');
       b.textContent = s.label;
       b.title = s.label;
-      b.addEventListener('click', () => {
-        activeSeg = i;
-        Array.prototype.forEach.call(ui.segs.children, (c, j) => {
-          c.classList.toggle('active', j === i);
-        });
-        ui.body.textContent = segments[i].text;
-        positionPanel();
-      });
+      b.addEventListener('click', () => setActiveSeg(i));
       ui.segs.appendChild(b);
     });
 
@@ -730,6 +819,15 @@
     setText(currentEditor, segments[activeSeg].text);
     hidePanel();
     flashChip('Applied');
+  }
+
+  function copyActive() {
+    if (!segments[activeSeg]) return;
+    const t = segments[activeSeg].text;
+    const fail = () => showHint(NAME + ' v' + VERSION + ': could not copy — select the text manually.');
+    try {
+      navigator.clipboard.writeText(t).then(() => showHint('Copied to clipboard.'), fail);
+    } catch (_) { fail(); }
   }
 
   // ---------------- UI: chip ----------------
@@ -795,6 +893,8 @@
   }
 
   // ---------------- main flow ----------------
+  // discovery + guards; the request itself lives in runSuggestion so the
+  // length-picker can re-run the same draft without re-discovering
   async function trigger(auto) {
     if (busy) return;
     // live re-discovery at trigger time — never trust a stale binding
@@ -815,12 +915,17 @@
           st.textbox + ' textbox / ' + st.iframes + ' iframe elements. Best: ' + (top || 'none scored') +
           '. Press F12 > Console and send the [Subtext] report to the author.';
       } else {
-        where = 'No editable message box exists in this page at all. Are you on a chat screen of chatgpt.com?';
+        where = 'No editable message box exists in this page at all. Are you on a chat screen (chatgpt.com, claude.ai, gemini.google.com, perplexity.ai, chat.deepseek.com)?';
       }
       showHint(NAME + ' v' + VERSION + ': message box not found — ' + where);
       try { console.warn('[Subtext v' + VERSION + '] scan report', JSON.stringify(lastScanReport || [], null, 1), 'stats', st, 'ua', navigator.userAgent); } catch (_) {}
       return;
     }
+    runSuggestion(!!auto);
+  }
+
+  async function runSuggestion(isAuto) {
+    if (busy || !currentEditor || !currentEditor.isConnected) return;
     const text = getText(currentEditor);
     if (text.length < MIN_CHARS) {
       showHint(NAME + ' v' + VERSION + ': type a little more first — Improve needs at least ' + MIN_CHARS + ' characters.');
@@ -833,18 +938,18 @@
     positionChip();
     showPanelLoading();
 
-    const res = await send({ type: 'improve', text: text });
+    const res = await send({ type: 'improve', text: text, style: currentStyle });
     busy = false;
     setChipBusy(false);
 
     if (!res) {
-      if (auto) autoFailUntil = Date.now() + AUTO_FAIL_BACKOFF_MS;
+      if (isAuto) autoFailUntil = Date.now() + AUTO_FAIL_BACKOFF_MS;
       refreshChip();
       showPanelError('Could not reach the extension background. Reload this page and try again.');
       return;
     }
     if (!res.ok) {
-      if (auto) autoFailUntil = Date.now() + AUTO_FAIL_BACKOFF_MS;
+      if (isAuto) autoFailUntil = Date.now() + AUTO_FAIL_BACKOFF_MS;
       refreshChip();
       showPanelError(String(res.error || 'Unknown error.'));
       return;
@@ -855,6 +960,7 @@
       (res.data.variants || []).map((v) => ({ label: v.label || 'Variant', text: v.text }))
     );
     activeSeg = 0;
+    resultForText = text;   // arm 1/2/3/C until the draft changes
     showPanelResult(res.data.intent || '');
     refreshChip();
   }
@@ -875,10 +981,31 @@
       try { document.activeElement.blur(); } catch (_) {}
       return;
     }
-    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && panel && !panel.hidden) {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && panel && !panel.hidden && resultForText) {
       e.preventDefault();
       applyCurrent();
       return;
+    }
+    // 1/2/3 pick a variant, C copies — armed only while the panel shows a
+    // result for the CURRENT draft text, so resumed typing is never hijacked
+    if (panel && !panel.hidden && !e.altKey && !e.ctrlKey && !e.metaKey && resultForText
+        && (e.key === '1' || e.key === '2' || e.key === '3' || e.key === 'c')) {
+      const ed = currentEditor;
+      const inEditor = !!(ed && ed.isConnected);
+      const draft = inEditor ? getText(ed) : '';
+      if (!inEditor || draft === resultForText) {
+        if (e.key === 'c') {
+          e.preventDefault();
+          copyActive();
+        } else {
+          const idx = segIndexForKey(e.key, segments.length);
+          if (idx !== null) {
+            e.preventDefault();
+            setActiveSeg(idx);
+          }
+        }
+        return;
+      }
     }
     if (e.altKey && e.shiftKey && !e.ctrlKey && !e.metaKey && e.code === 'KeyI') {
       e.preventDefault();

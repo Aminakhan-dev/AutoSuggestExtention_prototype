@@ -1,12 +1,12 @@
-# Subtext — prototype v0.1.7
+# Subtext — prototype v0.3.0
 
 **Say what you meant.** Subtext is a Chrome extension that reads the rough prompt
-you just typed into ChatGPT, infers what you *actually* want to accomplish, and
+you just typed into an AI chat, infers what you *actually* want to accomplish, and
 quietly suggests a sharper version — in a small, non-intrusive panel above the
 message box. One click (or Ctrl+Enter) to use it, Esc to make it disappear.
 
-This is the first prototype, scoped to **chatgpt.com only**, built to validate the
-core idea: intent → outcome-driven rewriting, surfaced as a subtle suggestion.
+Works on **ChatGPT, Claude, Gemini, Perplexity and DeepSeek** — same chip, same
+panel, same keys everywhere.
 
 ---
 
@@ -58,21 +58,24 @@ no accounts, no servers of ours.
 
 ## Use
 
-1. Open [chatgpt.com](https://chatgpt.com) and type a rough, messy prompt (8+ characters).
+1. Open any supported site (chatgpt.com, claude.ai, gemini.google.com,
+   perplexity.ai, chat.deepseek.com) and type a rough, messy prompt (8+ characters).
 2. A small **Improve** chip appears above the message box (top-right corner).
 
 Four ways to trigger a suggestion — no hotkey needed:
 
-- **Pause while typing** — auto-suggest pops up on its own ~2s after you stop (toggle in Settings)
+- **Pause while typing** — auto-suggest pops up on its own ~1.2s after you stop (toggle in Settings)
 - **Tab** inside the message box
 - Click the **Improve** chip
 - **Alt+Shift+I** (always works)
 
 3. The panel shows:
    - **You seem to want** — one line describing your inferred intent
+   - **Length picker** — **Concise** (super short) / **Balanced** / **Detailed** (long, descriptive); click one to re-rewrite the same draft, the choice sticks for the session
    - **Primary** — the improved prompt
    - **Variant chips** — 2 alternative readings of what you meant
 4. **Use this prompt** (or Ctrl+Enter) replaces your draft in the box. **Esc** blurs the box / closes the panel, **Dismiss** closes it.
+5. Keyboard, while the panel shows a fresh result: **1 / 2 / 3** switch variants, **C** copies the shown suggestion to the clipboard. (Keys disarm the moment you resume typing, so your draft is never hijacked.)
 
 ### Try it with
 
@@ -90,8 +93,9 @@ quick FYI, etc.).
 
 ## Troubleshooting
 
-- **Chip never appears** — reload the ChatGPT tab after loading the extension;
-  make sure you've typed at least 8 characters.
+- **Chip never appears** — reload the chat tab after loading the extension;
+  make sure you've typed at least 8 characters. On any supported site, click
+  inside the message box once — Subtext trusts your focus over everything else.
 - **"No API key set"** — toolbar icon → Open Settings → pick a free provider, save a key.
 - **Provider error 429** — you hit the free-tier rate limit; wait a bit or switch provider.
   Both the Test button and Improve now treat 429 as *key is valid, just busy*.
@@ -103,23 +107,27 @@ quick FYI, etc.).
   own error message, then verifies candidates from the live model list one by one before
   switching. No manual action needed; if all roads fail the error shows exactly what the
   auto-fix attempted under `[auto-fix tried: …]`.
-- **ChatGPT updated its DOM** — the script falls back to a generic editable-box
-  finder, but if OpenAI renames things, the primary selector lives in
-  `findEditor()` in `content.js` (`#prompt-textarea`).
+- **ChatGPT updated its DOM** — the script falls back to a scored generic
+  editable-box finder (known ids/classes: `#prompt-textarea`, `#chat-input`,
+  `.ProseMirror`, `.ql-editor`, `role=textbox`, textareas, contenteditables),
+  so renames are usually absorbed. If discovery truly fails, press Alt+Shift+I
+  and the pill + console report names the exact suspect element.
 - **Extension console** — `chrome://extensions` → Subtext → *service worker* /
   *Inspect views* for logs.
 
 ## Roadmap ideas (from the v0 discussion)
 
-- Auto-refresh selector map for ChatGPT DOM changes; more robust fallbacks
-- Other AI chat surfaces (Claude, Gemini, Perplexity) — same pattern, per-site adapter
+- Auto-refresh selector map for chat-site DOM changes; more robust fallbacks
+- More AI chat surfaces (Mistral Le Chat, Poe, xAI) — same pattern, per-site adapter
+- Tone picker dimension (polite / casual / direct) on top of the length picker
 - Human-to-human DMs (WhatsApp Web, Telegram Web) — different tone profile, privacy-first
 - Local-model mode (Chrome's built-in Rewriter API) for zero-data-leaving rewriting
-- Accept/reject logging to build a personal "how you talk" model (the moat)
+- Suggestion history in the popup; accept/reject logging to build a personal "how you talk" model (the moat)
 
 ## Status
 
-Prototype v0.1.7 (multi-provider: Gemini / Groq / OpenRouter / OpenAI — free
-tiers supported). Not on the Chrome Web Store — load unpacked only. Rename
-pending (decision above), API key is BYO. Built fast to test the core loop;
-expect rough edges and tell the extension author everything.
+Prototype v0.3.0 (multi-site: ChatGPT / Claude / Gemini / Perplexity / DeepSeek —
+multi-provider: Gemini / Groq / OpenRouter / OpenAI, free tiers supported).
+Not on the Chrome Web Store — load unpacked only. Rename pending (decision above),
+API key is BYO. Built fast to test the core loop; expect rough edges and tell the
+extension author everything.

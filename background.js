@@ -234,8 +234,8 @@ async function healModel(failText) {
   return { model: '', note: notes.join('; ') || 'no usable models discovered' };
 }
 
-const SYSTEM_PROMPT = [
-  'You are Subtext, an expert prompt engineer and communication coach built into a browser extension. The user typed a rough draft into ChatGPT.',
+const SYSTEM_PROMPT_BASE = [
+  'You are Subtext, an expert prompt engineer and communication coach built into a browser extension. The user typed a rough draft into an AI chat.',
   '',
   'Your job:',
   '1. Infer what the user is actually trying to accomplish - their real intent and desired outcome - reading between the lines.',
@@ -249,9 +249,22 @@ const SYSTEM_PROMPT = [
   'Include exactly 2 variants, each assuming a meaningfully DIFFERENT interpretation or goal than the primary.'
 ].join('\n');
 
+// Length styles the user can pick in the panel (v0.3.0).
+// '' / 'balanced' adds nothing — the base prompt already matches effort to need.
+const STYLE_HINTS = {
+  concise: 'LENGTH: The user asked for a SUPER SHORT, concise version. Compress the suggestion to 1-2 tight sentences that keep only the essential ask. No preamble, no filler, no bullet padding.',
+  detailed: 'LENGTH: The user asked for a LONG, descriptive version. Expand the suggestion with relevant context, explicit constraints, desired output format and specifics - while staying strictly faithful to what the draft implies. Never invent facts.',
+  balanced: ''
+};
+
+function systemPromptFor(style) {
+  const hint = STYLE_HINTS[String(style || '')] || '';
+  return hint ? SYSTEM_PROMPT_BASE + '\n\n' + hint : SYSTEM_PROMPT_BASE;
+}
+
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg && msg.type === 'improve') {
-    improvePrompt(msg.text)
+    improvePrompt(msg.text, false, msg.style)
       .then((data) => sendResponse({ ok: true, data }))
       .catch((err) => sendResponse({ ok: false, error: String((err && err.message) || err) }));
     return true; // keep the message channel open for the async reply
@@ -371,7 +384,7 @@ function providerConfigLabel(cfg) {
   return 'The provider';
 }
 
-async function improvePrompt(text, noRetry) {
+async function improvePrompt(text, noRetry, style) {
   const { cfg, apiKey, model } = await getConfig();
   if (!apiKey) throw new Error('No API key set. Click the Subtext toolbar icon, then Settings.');
   if (!text || !text.trim()) throw new Error('Nothing to improve - the message box looks empty.');
@@ -389,7 +402,7 @@ async function improvePrompt(text, noRetry) {
         temperature: 0.6,
         response_format: { type: 'json_object' },
         messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
+          { role: 'system', content: systemPromptFor(style) },
           { role: 'user', content: 'Draft typed by the user:\n"""\n' + text + '\n"""' }
         ]
       }),
@@ -409,7 +422,7 @@ async function improvePrompt(text, noRetry) {
     if (res.status >= 500) {
       if (!noRetry) {
         await sleep(2000);
-        return improvePrompt(text, true); // one retry for transient overload
+        return improvePrompt(text, true, style); // one retry for transient overload
       }
       throw new Error(cfg.label + ' is overloaded right now (high demand). Your key and model are fine — try again in a minute.');
     }
@@ -419,7 +432,7 @@ async function improvePrompt(text, noRetry) {
     if (modelErr && !noRetry) {
       const original = model;
       const healed = await healModel(detail);
-      if (healed.model && healed.model !== original) return improvePrompt(text, true);
+      if (healed.model && healed.model !== original) return improvePrompt(text, true, style);
     }
     throw new Error(cfg.label + ' error ' + res.status + detail);
   }
