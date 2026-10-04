@@ -1,4 +1,4 @@
-# Subtext — prototype v0.3.0
+# Subtext — prototype v0.4.0
 
 **Say what you meant.** Subtext is a Chrome extension that reads the rough prompt
 you just typed into an AI chat, infers what you *actually* want to accomplish, and
@@ -69,13 +69,14 @@ Four ways to trigger a suggestion — no hotkey needed:
 - Click the **Improve** chip
 - **Alt+Shift+I** (always works)
 
-3. The panel shows:
+3. The panel is a **slim one-line card** by default — sparkle + a one-line preview + expand arrow + close. Click the arrow (or the card) to expand the full view:
    - **You seem to want** — one line describing your inferred intent
+   - **Full suggestion text**
    - **Length picker** — **Concise** (super short) / **Balanced** / **Detailed** (long, descriptive); click one to re-rewrite the same draft, the choice sticks for the session
-   - **Primary** — the improved prompt
    - **Variant chips** — 2 alternative readings of what you meant
-4. **Use this prompt** (or Ctrl+Enter) replaces your draft in the box. **Esc** blurs the box / closes the panel, **Dismiss** closes it.
-5. Keyboard, while the panel shows a fresh result: **1 / 2 / 3** switch variants, **C** copies the shown suggestion to the clipboard. (Keys disarm the moment you resume typing, so your draft is never hijacked.)
+   - **Use** / **Copy** buttons
+4. **Use** (or Ctrl+Enter) replaces your draft in the box. **Esc** blurs the box / closes the card, the **X** closes it.
+5. Keyboard, while the card shows a fresh result: **1 / 2 / 3** switch variants, **C** copies. (Keys disarm the moment you resume typing, so your draft is never hijacked.)
 
 ### Try it with
 
@@ -126,7 +127,7 @@ quick FYI, etc.).
 
 ## Status
 
-Prototype v0.3.0 (multi-site: ChatGPT / Claude / Gemini / Perplexity / DeepSeek —
+Prototype v0.4.0 (multi-site: ChatGPT / Claude / Gemini / Perplexity / DeepSeek —
 multi-provider: Gemini / Groq / OpenRouter / OpenAI, free tiers supported).
 Not on the Chrome Web Store — load unpacked only. Rename pending (decision above),
 API key is BYO. Built fast to test the core loop; expect rough edges and tell the

@@ -22,40 +22,41 @@
     *, *::before, *::after { box-sizing: border-box; }
 
     :host {
-      --bg: #ffffff;
+      --bg: rgba(255, 255, 255, .95);
       --fg: #111827;
       --muted: #6b7280;
-      --line: rgba(17, 24, 39, 0.10);
+      --line: rgba(17, 24, 39, 0.09);
       --accent: #6366f1;
-      --chip-bg: rgba(17, 24, 39, 0.92);
-      --shadow: 0 12px 40px rgba(17, 24, 39, 0.18);
+      --chip-bg: rgba(17, 24, 39, 0.88);
+      --shadow: 0 10px 30px rgba(17, 24, 39, 0.16);
     }
     @media (prefers-color-scheme: dark) {
       :host {
-        --bg: #1f2127;
+        --bg: rgba(31, 33, 39, .95);
         --fg: #eceef2;
         --muted: #9aa1ad;
-        --line: rgba(255, 255, 255, 0.12);
-        --chip-bg: rgba(236, 238, 242, 0.95);
+        --line: rgba(255, 255, 255, 0.10);
+        --chip-bg: rgba(236, 238, 242, 0.93);
       }
     }
 
+    /* chip: small, quiet, out of the way until hovered */
     .chip {
       position: fixed;
       transform: translateX(-100%);
       z-index: 2147483600;
       display: inline-flex;
       align-items: center;
-      gap: 6px;
-      padding: 7px 13px;
+      gap: 5px;
+      padding: 5px 11px;
       border: 1px solid var(--line);
       border-radius: 999px;
       background: var(--chip-bg);
       color: #fff;
-      font: 500 12.5px/1 system-ui, -apple-system, 'Segoe UI', sans-serif;
+      font: 500 11.5px/1 system-ui, -apple-system, 'Segoe UI', sans-serif;
       cursor: pointer;
-      box-shadow: 0 6px 18px rgba(17, 24, 39, 0.22);
-      opacity: 0.94;
+      box-shadow: 0 2px 10px rgba(17, 24, 39, 0.18);
+      opacity: 0.88;
       transition: opacity .15s ease, transform .15s ease;
     }
     @media (prefers-color-scheme: dark) { .chip { color: #111827; } }
@@ -65,109 +66,126 @@
     .chip.ok { background: #059669; color: #fff; }
 
     .chip-spin, .load-spin {
-      width: 11px; height: 11px;
-      border: 2px solid rgba(255,255,255,.35);
-      border-top-color: #fff;
+      width: 10px; height: 10px;
+      border: 2px solid rgba(99,102,241,.25);
+      border-top-color: var(--accent);
       border-radius: 50%;
       animation: subtext-spin .7s linear infinite;
+      flex: none;
+      display: inline-block;
+    }
+    .chip .chip-spin { border-color: rgba(255,255,255,.35); border-top-color: #fff; }
+    @media (prefers-color-scheme: dark) {
+      .chip .chip-spin { border-color: rgba(17,24,39,.3); border-top-color: #111827; }
     }
     @keyframes subtext-spin { to { transform: rotate(360deg); } }
 
+    /* panel: slim glass card — one quiet line by default, expands on demand */
     .panel {
       position: fixed;
       z-index: 2147483601;
-      width: min(560px, calc(100vw - 24px));
+      width: min(420px, calc(100vw - 24px));
       background: var(--bg);
+      -webkit-backdrop-filter: blur(14px);
+      backdrop-filter: blur(14px);
       color: var(--fg);
       border: 1px solid var(--line);
-      border-radius: 14px;
+      border-radius: 12px;
       box-shadow: var(--shadow);
-      font: 400 13.5px/1.55 system-ui, -apple-system, 'Segoe UI', sans-serif;
-      padding: 14px 16px 12px;
+      font: 400 12.5px/1.5 system-ui, -apple-system, 'Segoe UI', sans-serif;
+      overflow: hidden;
       animation: subtext-pop .14s ease-out;
     }
     @keyframes subtext-pop {
-      from { opacity: 0; transform: translateY(8px) scale(.985); }
+      from { opacity: 0; transform: translateY(6px) scale(.99); }
       to { opacity: 1; transform: none; }
     }
 
-    .head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
-    .brand { font-weight: 700; font-size: 13px; letter-spacing: .2px; }
-    .beta {
-      font-size: 10px; text-transform: uppercase; letter-spacing: .8px;
-      color: var(--muted); border: 1px solid var(--line);
-      padding: 2px 6px; border-radius: 999px;
+    .row-main {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 8px 8px 12px;
+      cursor: pointer;
     }
-    .close {
-      margin-left: auto; border: 0; background: transparent; color: var(--muted);
-      font: 600 15px/1 system-ui, sans-serif; cursor: pointer; padding: 4px 6px;
-      border-radius: 6px;
+    .row-main:hover { background: rgba(127, 127, 127, .07); }
+    .spark-ic { flex: none; display: flex; color: var(--accent); }
+    .preview {
+      flex: 1 1 auto;
+      min-width: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
-    .close:hover { color: var(--fg); background: rgba(127,127,127,.12); }
+    .preview.is-err { color: #b91c1c; }
+    @media (prefers-color-scheme: dark) { .preview.is-err { color: #fca5a5; } }
+    .preview.is-load { color: var(--muted); }
 
-    .err {
-      background: rgba(239, 68, 68, .08);
-      border: 1px solid rgba(239, 68, 68, .35);
-      border-radius: 10px;
-      padding: 10px 12px;
-      margin-bottom: 10px;
+    .icon-btn {
+      flex: none;
+      border: 0;
+      background: transparent;
+      color: var(--muted);
+      width: 24px; height: 24px;
+      border-radius: 7px;
+      cursor: pointer;
+      padding: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
     }
-    .err-text { color: #b91c1c; font-size: 12.5px; margin-bottom: 8px; }
-    @media (prefers-color-scheme: dark) { .err-text { color: #fca5a5; } }
+    .icon-btn:hover { color: var(--fg); background: rgba(127, 127, 127, .16); }
+    .icon-btn .chev { transition: transform .16s ease; }
+    .panel.expanded .icon-btn .chev { transform: rotate(180deg); }
+
+    .expander { padding: 2px 12px 10px; }
+    .panel:not(.expanded) .expander { display: none; }
+
+    .errbox {
+      background: rgba(239, 68, 68, .08);
+      border: 1px solid rgba(239, 68, 68, .3);
+      border-radius: 9px;
+      padding: 9px 11px;
+      margin-top: 6px;
+    }
+    .err-full { color: #b91c1c; font-size: 12px; margin-bottom: 8px; word-break: break-word; }
+    @media (prefers-color-scheme: dark) { .err-full { color: #fca5a5; } }
     .err-actions { display: flex; gap: 8px; }
 
-    .loading {
-      display: flex; align-items: center; gap: 10px;
-      color: var(--muted); font-size: 13px; padding: 14px 0 10px;
-    }
-    .load-spin { width: 14px; height: 14px; border-color: rgba(99,102,241,.3); border-top-color: var(--accent); }
-
-    .intent-row {
-      display: flex; gap: 8px; align-items: baseline;
-      border-left: 3px solid var(--accent);
-      padding: 4px 0 4px 10px;
-      margin-bottom: 10px;
-    }
-    .intent-label {
-      flex: none;
-      font-size: 10.5px; text-transform: uppercase; letter-spacing: .8px;
-      color: var(--accent); font-weight: 600;
-    }
-    .intent { color: var(--muted); font-style: italic; font-size: 12.5px; }
-
+    .intent-mini { color: var(--muted); font-style: italic; font-size: 11.5px; margin: 6px 0 7px; }
     .body {
       white-space: pre-wrap;
       word-break: break-word;
-      max-height: 180px;
+      max-height: 200px;
       overflow-y: auto;
-      font-size: 13.5px;
-      padding: 2px 0 6px;
+      font-size: 12.5px;
+      padding: 1px 0 8px;
     }
 
-    .segs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+    .segs { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px; }
     .seg {
       border: 1px solid var(--line); background: transparent; color: var(--muted);
-      font: 500 11.5px/1 system-ui, sans-serif;
-      padding: 5px 10px; border-radius: 999px; cursor: pointer;
-      max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      font: 500 11px/1 system-ui, sans-serif;
+      padding: 4px 9px; border-radius: 999px; cursor: pointer;
+      max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
     .seg:hover { color: var(--fg); }
     .seg.active { background: var(--accent); border-color: var(--accent); color: #fff; }
 
-    .styles { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 10px; }
+    .styles { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; margin-bottom: 8px; }
     .styles-label {
-      font-size: 10.5px; text-transform: uppercase; letter-spacing: .8px;
+      font-size: 10px; text-transform: uppercase; letter-spacing: .7px;
       color: var(--muted); font-weight: 600; margin-right: 2px;
     }
     .kbd-hint {
-      margin-top: 8px; color: var(--muted); font-size: 11px; line-height: 1.5;
+      margin-top: 7px; color: var(--muted); font-size: 10px; line-height: 1.5;
     }
     .kbd-hint b { font-weight: 600; color: var(--fg); }
 
-    .foot { display: flex; gap: 8px; align-items: center; }
+    .foot { display: flex; gap: 6px; align-items: center; }
     .btn {
-      font: 600 12.5px/1 system-ui, -apple-system, sans-serif;
-      border-radius: 10px; padding: 9px 14px; cursor: pointer;
+      font: 600 12px/1 system-ui, -apple-system, sans-serif;
+      border-radius: 8px; padding: 7px 12px; cursor: pointer;
       border: 1px solid transparent;
       transition: filter .12s ease, background .12s ease;
     }
@@ -184,11 +202,11 @@
       z-index: 2147483602;
       background: var(--chip-bg);
       color: #fff;
-      font: 500 12.5px/1.45 system-ui, -apple-system, 'Segoe UI', sans-serif;
-      padding: 9px 14px;
-      border-radius: 10px;
-      box-shadow: 0 6px 18px rgba(17, 24, 39, 0.25);
-      max-width: min(480px, calc(100vw - 32px));
+      font: 500 12px/1.45 system-ui, -apple-system, 'Segoe UI', sans-serif;
+      padding: 7px 12px;
+      border-radius: 9px;
+      box-shadow: 0 4px 14px rgba(17, 24, 39, 0.22);
+      max-width: min(440px, calc(100vw - 32px));
       text-align: center;
     }
     @media (prefers-color-scheme: dark) { .hint { color: #111827; } }
@@ -223,9 +241,10 @@
   let autoLastRun = 0;
   let autoLastText = '';
   let autoFailUntil = 0;       // backoff after an auto attempt failed
-  // v0.3.0: length style (sticky for the page session) + keyboard armed-state
+  // v0.4.0: length style (sticky for the page session) + keyboard armed-state
   let currentStyle = 'balanced';
   let resultForText = '';      // draft text the current panel result was built from
+  let keepExpandedOnResult = false; // style/variant reruns keep the expander open
   const AUTO_DEBOUNCE_MS = 1200;   // v0.3.0: snappier (was 1800)
   const AUTO_COOLDOWN_MS = 25000;
   const AUTO_FAIL_BACKOFF_MS = 90000;
@@ -602,25 +621,67 @@
   }
 
   // ---------------- UI: panel ----------------
+  // v0.4.0 quiet card: one slim line by default (preview + expand arrow + X);
+  // everything else lives in the expander and only shows on demand.
   function buildPanel() {
     const el = document.createElement('div');
     el.className = 'panel';
     el.hidden = true;
+    el.title = 'Subtext — say what you meant';
 
-    const head = document.createElement('div');
-    head.className = 'head';
-    head.innerHTML =
-      '<span class="brand">' + NAME + '</span>' +
-      '<span class="beta">prototype</span>' +
-      '<button type="button" class="close" title="Close">x</button>';
-    el.appendChild(head);
+    const rowMain = document.createElement('div');
+    rowMain.className = 'row-main';
+    rowMain.title = 'Click to expand or collapse';
+    const spark = document.createElement('span');
+    spark.className = 'spark-ic';
+    spark.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true">' +
+      '<path d="M12 2l2.2 7.8L22 12l-7.8 2.2L12 22l-2.2-7.8L2 12l7.8-2.2L12 2z" fill="currentColor"/></svg>';
+    const loadSpin = document.createElement('span');
+    loadSpin.className = 'load-spin';
+    loadSpin.hidden = true;
+    const preview = document.createElement('div');
+    preview.className = 'preview';
+    const chev = document.createElement('button');
+    chev.type = 'button';
+    chev.className = 'icon-btn';
+    chev.title = 'Expand';
+    chev.innerHTML = '<svg class="chev" width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true">' +
+      '<path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    const closeBtn = document.createElement('button');
+    closeBtn.type = 'button';
+    closeBtn.className = 'icon-btn';
+    closeBtn.title = 'Close';
+    closeBtn.innerHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" aria-hidden="true">' +
+      '<path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>';
+    rowMain.appendChild(spark);
+    rowMain.appendChild(loadSpin);
+    rowMain.appendChild(preview);
+    rowMain.appendChild(chev);
+    rowMain.appendChild(closeBtn);
+    el.appendChild(rowMain);
 
-    const err = document.createElement('div');
-    err.className = 'err';
-    err.hidden = true;
+    const toggle = () => {
+      el.classList.toggle('expanded');
+      positionPanel();
+    };
+    rowMain.addEventListener('click', (e) => {
+      if (closeBtn && (e.target === closeBtn || closeBtn.contains(e.target))) return;
+      toggle();
+    });
+    chev.addEventListener('click', (e) => { e.stopPropagation(); toggle(); });
+    closeBtn.addEventListener('click', (e) => { e.stopPropagation(); hidePanel(); });
+
+    const expander = document.createElement('div');
+    expander.className = 'expander';
+    el.appendChild(expander);
+
+    // error details (expanded automatically on error)
+    const errBox = document.createElement('div');
+    errBox.className = 'errbox';
+    errBox.hidden = true;
     const errText = document.createElement('div');
-    errText.className = 'err-text';
-    err.appendChild(errText);
+    errText.className = 'err-full';
+    errBox.appendChild(errText);
     const errActions = document.createElement('div');
     errActions.className = 'err-actions';
     const retryBtn = document.createElement('button');
@@ -635,22 +696,22 @@
     keyBtn.addEventListener('click', () => send({ type: 'openOptions' }));
     errActions.appendChild(retryBtn);
     errActions.appendChild(keyBtn);
-    err.appendChild(errActions);
-    el.appendChild(err);
+    errBox.appendChild(errActions);
+    expander.appendChild(errBox);
 
-    const loading = document.createElement('div');
-    loading.className = 'loading';
-    loading.innerHTML =
-      '<span class="load-spin"></span><span>Reading between your lines...</span>';
-    el.appendChild(loading);
+    // result details
+    const intentMini = document.createElement('div');
+    intentMini.className = 'intent-mini';
+    intentMini.hidden = true;
+    expander.appendChild(intentMini);
 
-    const intentRow = document.createElement('div');
-    intentRow.className = 'intent-row';
-    intentRow.hidden = true;
-    intentRow.innerHTML =
-      '<span class="intent-label">You seem to want</span>' +
-      '<span class="intent"></span>';
-    el.appendChild(intentRow);
+    const body = document.createElement('div');
+    body.className = 'body';
+    expander.appendChild(body);
+
+    const segs = document.createElement('div');
+    segs.className = 'segs';
+    expander.appendChild(segs);
 
     // length picker (v0.3.0): Concise / Balanced / Detailed — click re-runs
     // the same draft with a length hint; the choice sticks for the session
@@ -674,62 +735,67 @@
       styleBtns[key] = b;
       stylesRow.appendChild(b);
     });
-    el.appendChild(stylesRow);
-
-    const body = document.createElement('div');
-    body.className = 'body';
-    el.appendChild(body);
-
-    const segs = document.createElement('div');
-    segs.className = 'segs';
-    el.appendChild(segs);
+    expander.appendChild(stylesRow);
 
     const foot = document.createElement('div');
     foot.className = 'foot';
     const use = document.createElement('button');
     use.type = 'button';
     use.className = 'btn primary';
-    use.textContent = 'Use this prompt';
+    use.textContent = 'Use';
+    use.title = 'Replace your draft (Ctrl+Enter)';
     use.addEventListener('click', applyCurrent);
-    const dismiss = document.createElement('button');
-    dismiss.type = 'button';
-    dismiss.className = 'btn ghost';
-    dismiss.textContent = 'Dismiss';
-    dismiss.addEventListener('click', hidePanel);
+    const copyBtn = document.createElement('button');
+    copyBtn.type = 'button';
+    copyBtn.className = 'btn ghost';
+    copyBtn.textContent = 'Copy';
+    copyBtn.title = 'Copy to clipboard (C)';
+    copyBtn.addEventListener('click', copyActive);
     foot.appendChild(use);
-    foot.appendChild(dismiss);
-    el.appendChild(foot);
+    foot.appendChild(copyBtn);
+    expander.appendChild(foot);
 
     const kbd = document.createElement('div');
     kbd.className = 'kbd-hint';
-    kbd.innerHTML = '<b>1</b>/<b>2</b>/<b>3</b> pick variant &nbsp;·&nbsp; <b>C</b> copy &nbsp;·&nbsp; <b>Ctrl+Enter</b> use &nbsp;·&nbsp; <b>Esc</b> close';
-    el.appendChild(kbd);
-
-    const closeBtn = head.querySelector('.close');
-    closeBtn.addEventListener('click', hidePanel);
+    kbd.innerHTML = '<b>1</b>/<b>2</b>/<b>3</b> variant · <b>C</b> copy · <b>Ctrl+Enter</b> use · <b>Esc</b> close';
+    expander.appendChild(kbd);
 
     return {
       el: el,
-      err: err,
+      rowMain: rowMain,
+      preview: preview,
+      chev: chev,
+      loadSpin: loadSpin,
+      errBox: errBox,
       errText: errText,
       keyBtn: keyBtn,
-      loading: loading,
-      intentRow: intentRow,
-      intent: intentRow.querySelector('.intent'),
+      intentMini: intentMini,
       stylesRow: stylesRow,
       styleBtns: styleBtns,
       body: body,
       segs: segs,
+      foot: foot,
       use: use
     };
   }
 
+  // one-line preview for the collapsed card (pure, unit-tested)
+  function previewText(t) {
+    const s = String(t || '').replace(/\s+/g, ' ').trim();
+    return s.length > 110 ? s.slice(0, 109) + '…' : s;
+  }
+
   function showPanelLoading() {
     ensureUI();
-    ui.err.hidden = true;
-    ui.loading.hidden = false;
-    ui.intentRow.hidden = true;
+    ui.errBox.hidden = true;
+    ui.loadSpin.hidden = false;
+    ui.chev.hidden = true;
+    ui.preview.className = 'preview is-load';
+    ui.preview.textContent = 'Thinking…';
+    ui.preview.title = '';
+    ui.intentMini.hidden = true;
     ui.stylesRow.hidden = true;
+    ui.foot.hidden = true;
     resultForText = '';            // disarm 1/2/3/C while loading
     ui.body.textContent = '';
     ui.segs.innerHTML = '';
@@ -739,14 +805,22 @@
 
   function showPanelError(message) {
     panel.hidden = false;
-    ui.loading.hidden = true;
-    ui.intentRow.hidden = true;
+    ui.loadSpin.hidden = true;
+    ui.chev.hidden = false;
+    ui.intentMini.hidden = true;
     ui.stylesRow.hidden = true;
+    ui.foot.hidden = true;
     ui.body.textContent = '';
+    ui.body.hidden = true;
     ui.segs.innerHTML = '';
+    ui.segs.hidden = true;
+    ui.preview.className = 'preview is-err';
+    ui.preview.textContent = previewText(message);
+    ui.preview.title = message;
     ui.errText.textContent = message;
     ui.keyBtn.hidden = !/API key/i.test(message);
-    ui.err.hidden = false;
+    ui.errBox.hidden = false;
+    panel.classList.add('expanded'); // errors expand so Retry is visible
     positionPanel();
   }
 
@@ -757,6 +831,8 @@
       c.classList.toggle('active', j === i);
     });
     ui.body.textContent = segments[i].text;
+    ui.preview.textContent = previewText(segments[i].text);
+    ui.preview.title = segments[i].text;
     positionPanel();
   }
 
@@ -774,6 +850,7 @@
       currentStyle = key;
       paintStyles();
     }
+    keepExpandedOnResult = true; // user is already reading the expander
     runSuggestion(false);
   }
 
@@ -786,12 +863,21 @@
 
   function showPanelResult(intentText) {
     panel.hidden = false;
-    ui.err.hidden = true;
-    ui.loading.hidden = true;
-    ui.intentRow.hidden = !intentText;
-    ui.intent.textContent = intentText;
+    if (!keepExpandedOnResult) panel.classList.remove('expanded');
+    keepExpandedOnResult = false;
+    ui.errBox.hidden = true;
+    ui.loadSpin.hidden = true;
+    ui.chev.hidden = false;
+    ui.preview.className = 'preview';
+    ui.preview.textContent = previewText(segments[activeSeg].text);
+    ui.preview.title = segments[activeSeg].text;
+    ui.intentMini.hidden = !intentText;
+    ui.intentMini.textContent = intentText ? 'You seem to want: ' + intentText : '';
     ui.stylesRow.hidden = false;
     paintStyles();
+    ui.body.hidden = false;
+    ui.segs.hidden = false;
+    ui.foot.hidden = false;
 
     ui.segs.innerHTML = '';
     segments.forEach((s, i) => {
@@ -878,7 +964,8 @@
   function positionPanel() {
     if (!currentEditor || !currentEditor.isConnected) return;
     const r = currentEditor.getBoundingClientRect();
-    const maxLeft = Math.max(12, window.innerWidth - 572);
+    const w = (panel && panel.offsetWidth) || 432;
+    const maxLeft = Math.max(12, window.innerWidth - w - 12);
     panel.style.left = clampNum(r.left, 12, maxLeft) + 'px';
     panel.style.bottom = Math.round(window.innerHeight - r.top + 10) + 'px';
   }
