@@ -1,4 +1,4 @@
-# Subtext — prototype v0.4.0
+# Subtext — prototype v0.4.1
 
 **Say what you meant.** Subtext is a Chrome extension that reads the rough prompt
 you just typed into an AI chat, infers what you *actually* want to accomplish, and
@@ -69,6 +69,12 @@ Four ways to trigger a suggestion — no hotkey needed:
 - Click the **Improve** chip
 - **Alt+Shift+I** (always works)
 
+> v0.4.1 rewired trigger detection: the document itself now hears every keystroke
+> (capture-phase `input`/`compositionend`/`paste`), focus re-binds the editor
+> instantly, and auto/Tab re-discover the box live at fire time — previously a
+> wrong first discovery (e.g. the site's search box) could silently kill both
+> auto-suggest and Tab while Alt+Shift+I kept working.
+
 3. The panel is a **slim one-line card** by default — sparkle + a one-line preview + expand arrow + close. Click the arrow (or the card) to expand the full view:
    - **You seem to want** — one line describing your inferred intent
    - **Full suggestion text**
@@ -97,6 +103,12 @@ quick FYI, etc.).
 - **Chip never appears** — reload the chat tab after loading the extension;
   make sure you've typed at least 8 characters. On any supported site, click
   inside the message box once — Subtext trusts your focus over everything else.
+- **Auto-suggest or Tab never fires** — first, reload the extension AND refresh
+  the chat tab (content scripts do not hot-swap). Then open DevTools → Console
+  on the chat tab, enable **Verbose** level, and type + pause: you should see
+  `[Subtext vX] auto gate: …` lines explaining the decision (short / unchanged /
+  cooldown / backoff), and `[Subtext vX] auto-suggest: pause detected` when it
+  fires. No lines at all = the tab is running a stale build — refresh it.
 - **"No API key set"** — toolbar icon → Open Settings → pick a free provider, save a key.
 - **Provider error 429** — you hit the free-tier rate limit; wait a bit or switch provider.
   Both the Test button and Improve now treat 429 as *key is valid, just busy*.
@@ -127,7 +139,7 @@ quick FYI, etc.).
 
 ## Status
 
-Prototype v0.4.0 (multi-site: ChatGPT / Claude / Gemini / Perplexity / DeepSeek —
+Prototype v0.4.1 (multi-site: ChatGPT / Claude / Gemini / Perplexity / DeepSeek —
 multi-provider: Gemini / Groq / OpenRouter / OpenAI, free tiers supported).
 Not on the Chrome Web Store — load unpacked only. Rename pending (decision above),
 API key is BYO. Built fast to test the core loop; expect rough edges and tell the

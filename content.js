@@ -280,14 +280,68 @@
 
   // The box the user is actually typing in is the best signal we can have —
   // it survives every class/id rename ChatGPT will ever ship.
-  document.addEventListener('focusin', (e) => {
-    const t = e.target;
-    if (!t || !t.tagName) return;
+  // Returns the real editable for an event target; when the editor lives
+  // inside an open shadow root the event target is the shadow HOST, so pierce
+  // into it and return the element that actually has focus.
+  function recordFocusedEditable(t) {
+    if (!t || !t.tagName) return null;
     const tag = t.tagName;
-    if (tag === 'TEXTAREA' || tag === 'INPUT' || t.isContentEditable) {
-      lastFocusedEditable = t;
+    if (tag === 'TEXTAREA' || tag === 'INPUT' || t.isContentEditable) return t;
+    try {
+      if (t.shadowRoot && t.shadowRoot.activeElement) {
+        const deep = t.shadowRoot.activeElement;
+        if (deep && (deep.tagName === 'TEXTAREA' || deep.tagName === 'INPUT' || deep.isContentEditable)) return deep;
+      }
+    } catch (_) { /* not a shadow host we can read */ }
+    return null;
+  }
+
+  function adoptFocusedEditor(ed) {
+    // follow the user's focus — but never move the anchor mid-request/result
+    if (busy || (panel && !panel.hidden)) return;
+    if (ed && ed !== currentEditor && isPlausibleEditor(ed)) bindEditor(ed);
+  }
+
+  document.addEventListener('focusin', (e) => {
+    const ed = recordFocusedEditable(e.target);
+    if (ed) {
+      lastFocusedEditable = ed;
+      adoptFocusedEditor(ed);
     }
   }, true);
+
+  // ---------------- typing activity (global, identity-independent) ----------------
+  // v0.4.1 fix: v0.2.0-v0.4.0 bound input listeners to ONE discovered element.
+  // If boot discovery picked the wrong element (e.g. the site's search box)
+  // or the site swapped the composer node, typing in the real composer
+  // produced NO signal — auto-suggest and Tab never fired while Alt+Shift+I
+  // (which re-discovers live at press time) still worked. Now the document
+  // itself is the sensor: input/compositionend/paste are composed events, so
+  // capture-phase listeners hear every editable, in every frame of this
+  // document, including editors inside open shadow roots.
+  function isEditSignal(t) {
+    if (!t || !t.tagName) return false;
+    if (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT' || t.isContentEditable) return true;
+    try {
+      if (t.shadowRoot && t.shadowRoot.activeElement) return isEditSignal(t.shadowRoot.activeElement);
+    } catch (_) { /* ignore */ }
+    return false;
+  }
+
+  function onEditActivity(t) {
+    try {
+      const ed = recordFocusedEditable(t);
+      if (ed) {
+        lastFocusedEditable = ed;
+        adoptFocusedEditor(ed);
+      }
+      scheduleAuto();
+    } catch (_) { /* a sensor error must never kill the pipeline */ }
+  }
+
+  document.addEventListener('input', (e) => onEditActivity(e.target), true);
+  document.addEventListener('compositionend', (e) => onEditActivity(e.target), true);
+  document.addEventListener('paste', (e) => onEditActivity(e.target), true);
 
   function deepActiveElement() {
     let a = document.activeElement;
@@ -327,23 +381,49 @@
     autoTimer = setTimeout(maybeAutoSuggest, AUTO_DEBOUNCE_MS);
   }
 
+  // Which editor should an automatic run read? Focus is intent, so the live
+  // focused element wins, then the last one the user typed in, then whatever
+  // discovery currently tracks. Never trusts a stale binding again. (pure-ish;
+  // mirrored in tests)
+  function pickAutoEditor(activeEl, lastFocused, currentEl) {
+    if (activeEl && activeEl.isConnected && isPlausibleEditor(activeEl)) return activeEl;
+    if (lastFocused && lastFocused.isConnected && isPlausibleEditor(lastFocused)) return lastFocused;
+    if (currentEl && currentEl.isConnected && isPlausibleEditor(currentEl)) return currentEl;
+    return null;
+  }
+
+  let lastGateLog = 0;
   function maybeAutoSuggest() {
-    const text = currentEditor && currentEditor.isConnected ? getText(currentEditor) : '';
-    const gate = shouldAutoRun({
-      enabled: autoEnabled,
-      busy: busy,
-      now: Date.now(),
-      failUntil: autoFailUntil,
-      lastRun: autoLastRun,
-      cooldownMs: AUTO_COOLDOWN_MS,
-      text: text,
-      lastText: autoLastText,
-      minChars: MIN_CHARS
-    });
-    if (!gate.ok) return;
-    autoLastRun = Date.now();
-    autoLastText = text;
-    trigger(true);
+    try {
+      const ed = pickAutoEditor(deepActiveElement(), lastFocusedEditable, currentEditor);
+      if (ed && ed !== currentEditor) bindEditor(ed);
+      const text = ed ? getText(ed) : '';
+      const gate = shouldAutoRun({
+        enabled: autoEnabled,
+        busy: busy,
+        now: Date.now(),
+        failUntil: autoFailUntil,
+        lastRun: autoLastRun,
+        cooldownMs: AUTO_COOLDOWN_MS,
+        text: text,
+        lastText: autoLastText,
+        minChars: MIN_CHARS
+      });
+      if (!gate.ok) {
+        // visible in DevTools with Verbose level — throttle to stay tidy
+        if (Date.now() - lastGateLog > 3000) {
+          lastGateLog = Date.now();
+          try { console.debug('[Subtext v' + VERSION + '] auto gate: ' + gate.why + ' (' + (text ? text.length : 0) + ' chars)'); } catch (_) {}
+        }
+        return;
+      }
+      autoLastRun = Date.now();
+      autoLastText = text;
+      try { console.info('[Subtext v' + VERSION + '] auto-suggest: pause detected, ' + text.length + ' chars'); } catch (_) {}
+      trigger(true);
+    } catch (err) {
+      try { console.warn('[Subtext v' + VERSION + '] auto-suggest error', err); } catch (_) {}
+    }
   }
 
   // settings: read once at boot, then follow live changes from the options page
@@ -475,6 +555,19 @@
       cls: cls.slice(0, 60),
       w: Math.round(w), h: Math.round(h), top: Math.round(r.top)
     };
+  }
+
+  // pure decision for the Tab shortcut (unit-tested): focus must be inside the
+  // editor (or the editor IS the deep-focused element, shadow-root case),
+  // panel closed, not busy, and enough text typed
+  function shouldTabTrigger(st) {
+    if (!st.ed || !st.edConnected) return false;
+    const inside = st.ae && (st.ae === st.ed || (st.ed.contains && st.ed.contains(st.ae)));
+    if (!inside && !st.deepFocusIsEd) return false;
+    if (st.busy) return false;
+    if (!st.panelHidden) return false;
+    if (st.textLen < st.minChars) return false;
+    return true;
   }
 
   function findEditor() {
@@ -984,6 +1077,11 @@
   // length-picker can re-run the same draft without re-discovering
   async function trigger(auto) {
     if (busy) return;
+    // the user's focus beats any stale binding (same rule as v0.1.8 scoring)
+    try {
+      const act = deepActiveElement();
+      if (act && act !== currentEditor && isPlausibleEditor(act)) bindEditor(act);
+    } catch (_) {}
     // live re-discovery at trigger time — never trust a stale binding
     if (!currentEditor || !currentEditor.isConnected || !isVisible(currentEditor)) {
       const live = findEditor();
@@ -1099,17 +1197,28 @@
       trigger();
       return;
     }
-    // Tab inside a composer with enough text = trigger a suggestion
+    // Tab inside a composer with enough text = trigger a suggestion.
+    // v0.4.1: the deep-focused editable IS the editor candidate — don't depend
+    // on which element discovery happens to be tracking.
     if (e.key === 'Tab' && !e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
-      const ed = currentEditor;
+      const deep = deepActiveElement();
+      const deepIsEd = !!(deep && isPlausibleEditor(deep));
+      const ed = deepIsEd ? deep : currentEditor;
       const ae = document.activeElement;
-      if (ed && ed.isConnected && ae && (ae === ed || (ed.contains && ed.contains(ae)))
-          && !busy && panel && panel.hidden) {
-        if (getText(ed).length >= MIN_CHARS) {
-          e.preventDefault();
-          e.stopPropagation();
-          trigger();
-        }
+      if (shouldTabTrigger({
+        ed: ed,
+        edConnected: !!(ed && ed.isConnected),
+        ae: ae,
+        deepFocusIsEd: deepIsEd,
+        busy: busy,
+        panelHidden: !!(panel && panel.hidden),
+        textLen: ed ? getText(ed).length : 0,
+        minChars: MIN_CHARS
+      })) {
+        if (ed !== currentEditor) bindEditor(ed);
+        e.preventDefault();
+        e.stopPropagation();
+        trigger();
       }
     }
   }, true);
