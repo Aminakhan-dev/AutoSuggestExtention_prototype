@@ -245,9 +245,16 @@
   let currentStyle = 'balanced';
   let resultForText = '';      // draft text the current panel result was built from
   let keepExpandedOnResult = false; // style/variant reruns keep the expander open
+  let autoMutedUntil = 0;      // v0.4.2: snooze after an explicit dismissal (X / Esc)
+  let resultSuppressed = false; // v0.4.2: response whose card the user closed mid-flight
   const AUTO_DEBOUNCE_MS = 1200;   // v0.3.0: snappier (was 1800)
-  const AUTO_COOLDOWN_MS = 25000;
+  // v0.4.2 live mode: the card follows the draft continuously. AUTO_COOLDOWN_MS
+  // is now only an API-politeness floor between runs (was a 25s anti-nag gap);
+  // after an explicit dismissal auto-open snoozes for AUTO_MUTE_MS instead,
+  // and any manual trigger (chip / Tab / Alt+Shift+I) clears the snooze.
+  const AUTO_COOLDOWN_MS = 4000;
   const AUTO_FAIL_BACKOFF_MS = 90000;
+  const AUTO_MUTE_MS = 45000;
   const boundEditors = new WeakSet();
 
   const EDITABLE_SEL = 'textarea, [contenteditable="true"], [contenteditable="plaintext-only"], [contenteditable=""]';
@@ -335,6 +342,12 @@
         lastFocusedEditable = ed;
         adoptFocusedEditor(ed);
       }
+      // live mode: if the draft shrank below the minimum, the card is stale —
+      // clear it quietly (no snooze; the next pause brings it back)
+      if (panel && !panel.hidden && currentEditor && currentEditor.isConnected
+          && getText(currentEditor).length < MIN_CHARS) {
+        hidePanel(false);
+      }
       scheduleAuto();
     } catch (_) { /* a sensor error must never kill the pipeline */ }
   }
@@ -369,6 +382,7 @@
     if (!st.enabled) return { ok: false, why: 'off' };
     if (st.busy) return { ok: false, why: 'busy' };
     if (st.now < st.failUntil) return { ok: false, why: 'backoff' };
+    if (st.muted) return { ok: false, why: 'muted' };
     if (st.now - st.lastRun < st.cooldownMs) return { ok: false, why: 'cooldown' };
     if (!st.text || st.text.length < st.minChars) return { ok: false, why: 'short' };
     if (st.text === st.lastText) return { ok: false, why: 'unchanged' };
@@ -403,6 +417,7 @@
         busy: busy,
         now: Date.now(),
         failUntil: autoFailUntil,
+        muted: Date.now() < autoMutedUntil,
         lastRun: autoLastRun,
         cooldownMs: AUTO_COOLDOWN_MS,
         text: text,
@@ -414,6 +429,17 @@
         if (Date.now() - lastGateLog > 3000) {
           lastGateLog = Date.now();
           try { console.debug('[Subtext v' + VERSION + '] auto gate: ' + gate.why + ' (' + (text ? text.length : 0) + ' chars)'); } catch (_) {}
+        }
+        // convergence: a real change that was only blocked by timing must not
+        // be dropped — re-check when the window ends. Input events still reset
+        // this timer, so active typing always wins over the retry.
+        if ((gate.why === 'cooldown' || gate.why === 'busy')
+            && text && text.length >= MIN_CHARS && text !== autoLastText) {
+          if (autoTimer) clearTimeout(autoTimer);
+          const delay = gate.why === 'busy'
+            ? 1500
+            : Math.max(400, autoLastRun + AUTO_COOLDOWN_MS - Date.now()) + 250;
+          autoTimer = setTimeout(maybeAutoSuggest, delay);
         }
         return;
       }
@@ -687,7 +713,7 @@
       '<span class="chip-label">Improve</span>' +
       '<span class="chip-spin" hidden></span>';
     chip.addEventListener('click', () => {
-      if (!panel.hidden) { hidePanel(); return; }
+      if (!panel.hidden) { hidePanel(true); return; }
       trigger();
     });
     root.appendChild(chip);
@@ -762,7 +788,7 @@
       toggle();
     });
     chev.addEventListener('click', (e) => { e.stopPropagation(); toggle(); });
-    closeBtn.addEventListener('click', (e) => { e.stopPropagation(); hidePanel(); });
+    closeBtn.addEventListener('click', (e) => { e.stopPropagation(); hidePanel(true); });
 
     const expander = document.createElement('div');
     expander.className = 'expander';
@@ -878,13 +904,13 @@
     return s.length > 110 ? s.slice(0, 109) + '…' : s;
   }
 
-  function showPanelLoading() {
+  function showPanelLoading(label) {
     ensureUI();
     ui.errBox.hidden = true;
     ui.loadSpin.hidden = false;
     ui.chev.hidden = true;
     ui.preview.className = 'preview is-load';
-    ui.preview.textContent = 'Thinking…';
+    ui.preview.textContent = label || 'Thinking…';
     ui.preview.title = '';
     ui.intentMini.hidden = true;
     ui.stylesRow.hidden = true;
@@ -987,8 +1013,14 @@
     positionPanel();
   }
 
-  function hidePanel() {
+  function hidePanel(byUser) {
     if (!panel) return;
+    // explicit dismissal (X / Esc / chip) = snooze auto-open briefly and drop
+    // any in-flight response, so the card never pops back uninvited
+    if (byUser) {
+      autoMutedUntil = Date.now() + AUTO_MUTE_MS;
+      if (busy) resultSuppressed = true;
+    }
     panel.hidden = true;
     refreshChip();
   }
@@ -1077,6 +1109,7 @@
   // length-picker can re-run the same draft without re-discovering
   async function trigger(auto) {
     if (busy) return;
+    autoMutedUntil = 0; // a manual trigger is explicit demand — clear any snooze
     // the user's focus beats any stale binding (same rule as v0.1.8 scoring)
     try {
       const act = deepActiveElement();
@@ -1117,16 +1150,33 @@
       return;
     }
 
+    const wasOpen = !!(panel && !panel.hidden);
     busy = true;
+    resultSuppressed = false;
     setChipBusy(true);
     chip.hidden = false;
     positionChip();
-    showPanelLoading();
+    // live refresh: whatever expansion state the reader chose, keep it
+    if (wasOpen && panel.classList.contains('expanded')) keepExpandedOnResult = true;
+    showPanelLoading(wasOpen ? 'Updating…' : 'Thinking…');
 
     const res = await send({ type: 'improve', text: text, style: currentStyle });
     busy = false;
     setChipBusy(false);
 
+    // the user closed the card while we were thinking — never pop it back open
+    if (resultSuppressed) {
+      refreshChip();
+      return;
+    }
+    // the draft vanished or shrank below the minimum mid-request — nothing to
+    // suggest for; the next pause will run fresh
+    const draftNow = currentEditor && currentEditor.isConnected ? getText(currentEditor) : '';
+    if (draftNow.length < MIN_CHARS) {
+      hidePanel(false);
+      refreshChip();
+      return;
+    }
     if (!res) {
       if (isAuto) autoFailUntil = Date.now() + AUTO_FAIL_BACKOFF_MS;
       refreshChip();
@@ -1157,7 +1207,7 @@
 
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && panel && !panel.hidden) {
-      hidePanel();
+      hidePanel(true);
       return;
     }
     // Esc with panel closed = leave the composer (escape hatch from Tab capture)
@@ -1167,8 +1217,15 @@
       return;
     }
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && panel && !panel.hidden && resultForText) {
-      e.preventDefault();
-      applyCurrent();
+      const edC = currentEditor;
+      const inEd = !!(edC && edC.isConnected);
+      const draftC = inEd ? getText(edC) : '';
+      if (!inEd || draftC === resultForText) {
+        e.preventDefault();
+        applyCurrent();
+      }
+      // draft moved on since the result was built → do nothing; Ctrl+Enter
+      // falls through to the page so resumed typing is never hijacked
       return;
     }
     // 1/2/3 pick a variant, C copies — armed only while the panel shows a

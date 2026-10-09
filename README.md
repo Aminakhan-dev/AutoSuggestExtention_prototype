@@ -1,4 +1,4 @@
-# Subtext — prototype v0.4.1
+# Subtext — prototype v0.4.2
 
 **Say what you meant.** Subtext is a Chrome extension that reads the rough prompt
 you just typed into an AI chat, infers what you *actually* want to accomplish, and
@@ -74,6 +74,16 @@ Four ways to trigger a suggestion — no hotkey needed:
 > instantly, and auto/Tab re-discover the box live at fire time — previously a
 > wrong first discovery (e.g. the site's search box) could silently kill both
 > auto-suggest and Tab while Alt+Shift+I kept working.
+>
+> v0.4.2 makes the card a **live companion**: while it is open it keeps
+> re-writing as your draft evolves — every pause (≥1.2s, so it adapts to your
+> typing speed) produces a fresh suggestion, with a small 4s floor between API
+> calls so free-tier limits are respected. The preview line shows "Updating…"
+> during a refresh and your chosen expansion state is preserved. Close the
+> card with **X** or **Esc** and it politely snoozes for 45s; any manual
+> trigger (chip / Tab / Alt+Shift+I) wakes it instantly. Clearing the draft
+> clears the card. Ctrl+Enter only applies when the draft hasn't moved on
+> since the result was built — typing is never hijacked.
 
 3. The panel is a **slim one-line card** by default — sparkle + a one-line preview + expand arrow + close. Click the arrow (or the card) to expand the full view:
    - **You seem to want** — one line describing your inferred intent
@@ -139,7 +149,7 @@ quick FYI, etc.).
 
 ## Status
 
-Prototype v0.4.1 (multi-site: ChatGPT / Claude / Gemini / Perplexity / DeepSeek —
+Prototype v0.4.2 (multi-site: ChatGPT / Claude / Gemini / Perplexity / DeepSeek —
 multi-provider: Gemini / Groq / OpenRouter / OpenAI, free tiers supported).
 Not on the Chrome Web Store — load unpacked only. Rename pending (decision above),
 API key is BYO. Built fast to test the core loop; expect rough edges and tell the
