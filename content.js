@@ -9,12 +9,10 @@
   'use strict';
 
   const NAME = 'Subtext';
-  // stamped into every pill/console line so the running build is never a mystery
   const VERSION = (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.getManifest)
-    ? String(chrome.runtime.getManifest().version || '') : '';
-  const MIN_CHARS = 8;      // don't offer suggestions on tiny inputs
-  const POLL_MS = 700;      // SPA safety net: rediscover editor, refresh chip
-  // length styles for suggestions (user-pickable in the panel, v0.3.0)
+    ? String(chrome.runtime.getManifest().version || '') : '';   // stamped into every pill/console line
+  const MIN_CHARS = 8;      // suggestions below this read as noise
+  const POLL_MS = 700;      // SPA safety net: re-find the editor, refresh the chip
   const STYLES = [['concise', 'Concise'], ['balanced', 'Balanced'], ['detailed', 'Detailed']];
 
   const CSS_TEXT = `
@@ -40,10 +38,10 @@
       }
     }
 
-    /* chip: small, quiet, out of the way until hovered */
+    /* chip: a quiet pill centered above the message box */
     .chip {
       position: fixed;
-      transform: translateX(-100%);
+      transform: translateX(-50%);
       z-index: 2147483600;
       display: inline-flex;
       align-items: center;
@@ -60,7 +58,7 @@
       transition: opacity .15s ease, transform .15s ease;
     }
     @media (prefers-color-scheme: dark) { .chip { color: #111827; } }
-    .chip:hover { opacity: 1; transform: translateX(-100%) translateY(-1px); }
+    .chip:hover { opacity: 1; transform: translateX(-50%) translateY(-1px); }
     .chip .spark { color: #c7d2fe; }
     @media (prefers-color-scheme: dark) { .chip .spark { color: #4f46e5; } }
     .chip.ok { background: #059669; color: #fff; }
@@ -235,23 +233,24 @@
   let lastDeepScan = 0;
   let lastFocusedEditable = null;  // the box the user last typed/clicked in
   let lastScanReport = [];         // per-candidate scores + rejection reasons
+
   // auto-suggest state (typing-pause trigger)
   let autoEnabled = true;
   let autoTimer = null;
   let autoLastRun = 0;
   let autoLastText = '';
   let autoFailUntil = 0;       // backoff after an auto attempt failed
-  // v0.4.0: length style (sticky for the page session) + keyboard armed-state
-  let currentStyle = 'balanced';
+  let currentStyle = 'balanced';    // length style, sticky for the page session
   let resultForText = '';      // draft text the current panel result was built from
   let keepExpandedOnResult = false; // style/variant reruns keep the expander open
-  let autoMutedUntil = 0;      // v0.4.2: snooze after an explicit dismissal (X / Esc)
-  let resultSuppressed = false; // v0.4.2: response whose card the user closed mid-flight
-  const AUTO_DEBOUNCE_MS = 1200;   // v0.3.0: snappier (was 1800)
-  // v0.4.2 live mode: the card follows the draft continuously. AUTO_COOLDOWN_MS
-  // is now only an API-politeness floor between runs (was a 25s anti-nag gap);
-  // after an explicit dismissal auto-open snoozes for AUTO_MUTE_MS instead,
-  // and any manual trigger (chip / Tab / Alt+Shift+I) clears the snooze.
+  let autoMutedUntil = 0;      // snooze after an explicit dismissal (X / Esc)
+  let resultSuppressed = false; // response whose card the user closed mid-flight
+
+  // Trigger timing. Every keystroke resets the debounce, so a suggestion lands
+  // on the first real pause whatever the typing speed. The cooldown is only an
+  // API-politeness floor between runs; an explicit dismissal snoozes auto-open
+  // for AUTO_MUTE_MS, and any manual trigger clears the snooze.
+  const AUTO_DEBOUNCE_MS = 1200;
   const AUTO_COOLDOWN_MS = 4000;
   const AUTO_FAIL_BACKOFF_MS = 90000;
   const AUTO_MUTE_MS = 45000;
@@ -285,21 +284,29 @@
     });
   }
 
-  // The box the user is actually typing in is the best signal we can have —
-  // it survives every class/id rename ChatGPT will ever ship.
-  // Returns the real editable for an event target; when the editor lives
-  // inside an open shadow root the event target is the shadow HOST, so pierce
-  // into it and return the element that actually has focus.
-  function recordFocusedEditable(t) {
-    if (!t || !t.tagName) return null;
-    const tag = t.tagName;
-    if (tag === 'TEXTAREA' || tag === 'INPUT' || t.isContentEditable) return t;
+  // console diagnostics; never let logging throw into the hot path
+  function log(level, msg, rest) {
     try {
-      if (t.shadowRoot && t.shadowRoot.activeElement) {
-        const deep = t.shadowRoot.activeElement;
-        if (deep && (deep.tagName === 'TEXTAREA' || deep.tagName === 'INPUT' || deep.isContentEditable)) return deep;
-      }
-    } catch (_) { /* not a shadow host we can read */ }
+      if (rest === undefined) console[level]('[Subtext v' + VERSION + '] ' + msg);
+      else console[level]('[Subtext v' + VERSION + '] ' + msg, rest);
+    } catch (_) { /* devtools window may be gone */ }
+  }
+
+  function isEditableEl(el) {
+    if (!el || !el.tagName) return false;
+    return el.tagName === 'TEXTAREA' || el.tagName === 'INPUT' || !!el.isContentEditable;
+  }
+
+  // The box the user is actually typing in is the best signal we can have — it
+  // survives every class/id rename the chat sites will ever ship. When the
+  // editor sits inside an open shadow root, the event target is the HOST, so
+  // walk down through shadowRoot.activeElement to the real editable.
+  function recordFocusedEditable(t) {
+    let el = t;
+    for (let hops = 0; el && el.tagName && hops < 5; hops++) {
+      if (isEditableEl(el)) return el;
+      try { el = el.shadowRoot && el.shadowRoot.activeElement; } catch (_) { return null; }
+    }
     return null;
   }
 
@@ -318,23 +325,11 @@
   }, true);
 
   // ---------------- typing activity (global, identity-independent) ----------------
-  // v0.4.1 fix: v0.2.0-v0.4.0 bound input listeners to ONE discovered element.
-  // If boot discovery picked the wrong element (e.g. the site's search box)
-  // or the site swapped the composer node, typing in the real composer
-  // produced NO signal — auto-suggest and Tab never fired while Alt+Shift+I
-  // (which re-discovers live at press time) still worked. Now the document
-  // itself is the sensor: input/compositionend/paste are composed events, so
-  // capture-phase listeners hear every editable, in every frame of this
-  // document, including editors inside open shadow roots.
-  function isEditSignal(t) {
-    if (!t || !t.tagName) return false;
-    if (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT' || t.isContentEditable) return true;
-    try {
-      if (t.shadowRoot && t.shadowRoot.activeElement) return isEditSignal(t.shadowRoot.activeElement);
-    } catch (_) { /* ignore */ }
-    return false;
-  }
-
+  // The document itself is the sensor: input/compositionend/paste are composed
+  // events, so capture-phase listeners hear every editable in every frame of
+  // this document, including editors inside open shadow roots. Nothing depends
+  // on which element discovery happens to track, so a wrong pick or a composer
+  // node swap can never silence typing again.
   function onEditActivity(t) {
     try {
       const ed = recordFocusedEditable(t);
@@ -342,8 +337,8 @@
         lastFocusedEditable = ed;
         adoptFocusedEditor(ed);
       }
-      // live mode: if the draft shrank below the minimum, the card is stale —
-      // clear it quietly (no snooze; the next pause brings it back)
+      // if the draft shrank below the minimum, the open card is stale — clear
+      // it quietly (no snooze; the next pause brings it back)
       if (panel && !panel.hidden && currentEditor && currentEditor.isConnected
           && getText(currentEditor).length < MIN_CHARS) {
         hidePanel(false);
@@ -352,9 +347,9 @@
     } catch (_) { /* a sensor error must never kill the pipeline */ }
   }
 
-  document.addEventListener('input', (e) => onEditActivity(e.target), true);
-  document.addEventListener('compositionend', (e) => onEditActivity(e.target), true);
-  document.addEventListener('paste', (e) => onEditActivity(e.target), true);
+  ['input', 'compositionend', 'paste'].forEach((type) => {
+    document.addEventListener(type, (e) => onEditActivity(e.target), true);
+  });
 
   function deepActiveElement() {
     let a = document.activeElement;
@@ -428,7 +423,7 @@
         // visible in DevTools with Verbose level — throttle to stay tidy
         if (Date.now() - lastGateLog > 3000) {
           lastGateLog = Date.now();
-          try { console.debug('[Subtext v' + VERSION + '] auto gate: ' + gate.why + ' (' + (text ? text.length : 0) + ' chars)'); } catch (_) {}
+          log('debug', 'auto gate: ' + gate.why + ' (' + (text ? text.length : 0) + ' chars)');
         }
         // convergence: a real change that was only blocked by timing must not
         // be dropped — re-check when the window ends. Input events still reset
@@ -445,10 +440,10 @@
       }
       autoLastRun = Date.now();
       autoLastText = text;
-      try { console.info('[Subtext v' + VERSION + '] auto-suggest: pause detected, ' + text.length + ' chars'); } catch (_) {}
+      log('info', 'auto-suggest: pause detected, ' + text.length + ' chars');
       trigger(true);
     } catch (err) {
-      try { console.warn('[Subtext v' + VERSION + '] auto-suggest error', err); } catch (_) {}
+      log('warn', 'auto-suggest error', err);
     }
   }
 
@@ -740,7 +735,7 @@
   }
 
   // ---------------- UI: panel ----------------
-  // v0.4.0 quiet card: one slim line by default (preview + expand arrow + X);
+  // The quiet card: one slim line by default (preview + expand arrow + X);
   // everything else lives in the expander and only shows on demand.
   function buildPanel() {
     const el = document.createElement('div');
@@ -832,8 +827,8 @@
     segs.className = 'segs';
     expander.appendChild(segs);
 
-    // length picker (v0.3.0): Concise / Balanced / Detailed — click re-runs
-    // the same draft with a length hint; the choice sticks for the session
+    // length picker: Concise / Balanced / Detailed — re-runs the same draft
+    // with a length hint; the choice sticks for the page session
     const stylesRow = document.createElement('div');
     stylesRow.className = 'styles';
     stylesRow.hidden = true;
@@ -881,7 +876,6 @@
 
     return {
       el: el,
-      rowMain: rowMain,
       preview: preview,
       chev: chev,
       loadSpin: loadSpin,
@@ -893,8 +887,7 @@
       styleBtns: styleBtns,
       body: body,
       segs: segs,
-      foot: foot,
-      use: use
+      foot: foot
     };
   }
 
@@ -1044,7 +1037,6 @@
   // ---------------- UI: chip ----------------
   function setChipBusy(on) {
     if (!chip) return;
-    chip.classList.toggle('busy', on);
     chip.querySelector('.chip-spin').hidden = !on;
     chip.querySelector('.spark').style.display = on ? 'none' : '';
     chip.querySelector('.chip-label').textContent = on ? 'Thinking' : 'Improve';
@@ -1053,6 +1045,8 @@
   function flashChip(word) {
     if (!chip) return;
     if (chipFlashTimer) clearTimeout(chipFlashTimer);
+    chip.hidden = false;
+    positionChip();
     chip.classList.add('ok');
     chip.querySelector('.chip-label').textContent = word;
     chipFlashTimer = setTimeout(() => {
@@ -1060,10 +1054,6 @@
       chip.querySelector('.chip-label').textContent = 'Improve';
       refreshChip();
     }, 1600);
-  }
-
-  function hideChip() {
-    if (chip && !busy) chip.hidden = true;
   }
 
   function refreshChip() {
@@ -1082,14 +1072,15 @@
     if (!currentEditor || !currentEditor.isConnected) return;
     const r = currentEditor.getBoundingClientRect();
     if (!r.width && !r.height) return;
-    chip.style.left = Math.round(r.right - 6) + 'px';
+    // centered over the composer; CSS translateX(-50%) does the centering
+    chip.style.left = Math.round(r.left + r.width / 2) + 'px';
     chip.style.top = Math.round(Math.max(8, r.top - 40)) + 'px';
   }
 
   function positionPanel() {
     if (!currentEditor || !currentEditor.isConnected) return;
     const r = currentEditor.getBoundingClientRect();
-    const w = (panel && panel.offsetWidth) || 432;
+    const w = (panel && panel.offsetWidth) || 420;
     const maxLeft = Math.max(12, window.innerWidth - w - 12);
     panel.style.left = clampNum(r.left, 12, maxLeft) + 'px';
     panel.style.bottom = Math.round(window.innerHeight - r.top + 10) + 'px';
@@ -1110,7 +1101,7 @@
   async function trigger(auto) {
     if (busy) return;
     autoMutedUntil = 0; // a manual trigger is explicit demand — clear any snooze
-    // the user's focus beats any stale binding (same rule as v0.1.8 scoring)
+    // the user's focus beats any stale binding
     try {
       const act = deepActiveElement();
       if (act && act !== currentEditor && isPlausibleEditor(act)) bindEditor(act);
@@ -1131,12 +1122,12 @@
         ).join('  |  ');
         where = 'Found ' + st.prompt + ' prompt-box / ' + st.editable + ' editable / ' +
           st.textbox + ' textbox / ' + st.iframes + ' iframe elements. Best: ' + (top || 'none scored') +
-          '. Press F12 > Console and send the [Subtext] report to the author.';
+          '. Press F12 and check the Console for the full report.';
       } else {
         where = 'No editable message box exists in this page at all. Are you on a chat screen (chatgpt.com, claude.ai, gemini.google.com, perplexity.ai, chat.deepseek.com)?';
       }
       showHint(NAME + ' v' + VERSION + ': message box not found — ' + where);
-      try { console.warn('[Subtext v' + VERSION + '] scan report', JSON.stringify(lastScanReport || [], null, 1), 'stats', st, 'ua', navigator.userAgent); } catch (_) {}
+      log('warn', 'no usable editor; scan report follows', { stats: st, candidates: lastScanReport || [], userAgent: navigator.userAgent });
       return;
     }
     runSuggestion(!!auto);
@@ -1254,9 +1245,8 @@
       trigger();
       return;
     }
-    // Tab inside a composer with enough text = trigger a suggestion.
-    // v0.4.1: the deep-focused editable IS the editor candidate — don't depend
-    // on which element discovery happens to be tracking.
+    // Tab inside a composer with enough text triggers a suggestion. The
+    // deep-focused editable is the candidate — never the tracked binding.
     if (e.key === 'Tab' && !e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
       const deep = deepActiveElement();
       const deepIsEd = !!(deep && isPlausibleEditor(deep));
@@ -1299,7 +1289,7 @@
       bootHintShown = true;
       const st = composerStats();
       showHint(NAME + ' v' + VERSION + ' is active but has not found the message box (prompt-box: ' + st.prompt + ' · editable: ' + st.editable + ' · textbox: ' + st.textbox + ' · iframes: ' + st.iframes + '). Click inside the message box once, then press Alt+Shift+I. Refresh the tab if you just reloaded the extension.');
-      try { console.warn('[Subtext v' + VERSION + '] boot discovery stats', st); } catch (_) {}
+      log('warn', 'boot: no editor found yet', st);
     }
   }, POLL_MS);
 

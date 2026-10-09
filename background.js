@@ -1,38 +1,11 @@
 /*
- * Subtext — background service worker
+ * Subtext — background service worker.
  * Owns the API key and all LLM traffic so page scripts never touch secrets.
- * Supports free providers (Google Gemini, Groq, OpenRouter) via their
- * OpenAI-compatible endpoints, plus OpenAI itself.
+ * Every provider is talked to through its OpenAI-compatible endpoint, so the
+ * request path is one function; provider differences live in providers.js.
  */
 
-const PROVIDERS = {
-  gemini: {
-    label: 'Google Gemini (free tier)',
-    base: 'https://generativelanguage.googleapis.com/v1beta/openai',
-    kind: 'google',
-    defaultModel: 'gemini-3.8-flash',
-    models: ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.5-flash', 'gemini-flash-latest', 'gemini-2.5-flash']
-  },
-  groq: {
-    label: 'Groq (free tier)',
-    base: 'https://api.groq.com/openai/v1',
-    defaultModel: 'openai/gpt-oss-120b',
-    models: ['openai/gpt-oss-120b', 'openai/gpt-oss-20b']
-  },
-  openrouter: {
-    label: 'OpenRouter (free models)',
-    base: 'https://openrouter.ai/api/v1',
-    defaultModel: 'meta-llama/llama-3.3-70b-instruct:free',
-    models: ['meta-llama/llama-3.3-70b-instruct:free', 'google/gemini-2.0-flash-exp:free']
-  },
-  openai: {
-    label: 'OpenAI (paid)',
-    base: 'https://api.openai.com/v1',
-    defaultModel: 'gpt-4o-mini',
-    models: ['gpt-4o-mini', 'gpt-4o', 'gpt-4.1-mini']
-  }
-};
-const DEFAULT_PROVIDER = 'gemini';
+importScripts('providers.js');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // 429 = rate-limited, 5xx = provider overloaded: the key is fine and no model
@@ -118,23 +91,13 @@ function parseGeminiModels(j) {
     .filter((id, i, a) => a.indexOf(id) === i);
 }
 
-// last-resort candidates, tried directly against chat/completions
+// Well-known ids healModel falls back to when the live list yields nothing.
 const CANDIDATE_MODELS = {
   gemini: ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.5-flash', 'gemini-flash-latest', 'gemini-3-flash', 'gemini-2.5-flash', 'gemini-2.0-flash'],
   groq: ['openai/gpt-oss-120b', 'openai/gpt-oss-20b', 'llama-3.3-70b-versatile'],
   openrouter: ['meta-llama/llama-3.3-70b-instruct:free', 'google/gemini-2.0-flash-exp:free'],
   openai: ['gpt-4o-mini', 'gpt-4.1-mini', 'gpt-4o']
 };
-
-async function bruteForceModel(cfg, apiKey, providerKey) {
-  for (const id of (CANDIDATE_MODELS[providerKey] || [])) {
-    try {
-      const res = await tinyChat(cfg, apiKey, id);
-      if (res.ok) return id;
-    } catch (_) { /* keep trying */ }
-  }
-  return '';
-}
 
 // Gemini (and others) sometimes retire a model id for new keys and name the
 // replacement right inside the error body, e.g.:
@@ -195,7 +158,7 @@ async function healModel(failText) {
   const { provider, cfg, apiKey } = await getConfig();
   const notes = [];
 
-  // 1) fastest path: the provider's own error often names the replacement model
+  // 1) the provider's own error often names the replacement model
   const hinted = suggestModelFromError(failText);
   if (hinted) {
     if (await verifyModel(cfg, apiKey, hinted)) {
@@ -205,7 +168,7 @@ async function healModel(failText) {
     notes.push('provider-suggested ' + hinted + ' did not work either');
   }
 
-  // 2) discover live models from this key, verify top-ranked candidates
+  // 2) verify top-ranked models from this key's live list
   let models = [];
   try {
     models = await listModelsRaw();
@@ -223,7 +186,7 @@ async function healModel(failText) {
     notes.push('top-ranked models from the list were all rejected');
   }
 
-  // 3) last resort: brute-force well-known ids
+  // 3) last resort: try well-known ids directly
   for (const id of (CANDIDATE_MODELS[provider] || [])) {
     if (await verifyModel(cfg, apiKey, id)) {
       await chrome.storage.local.set({ model: id });
@@ -249,8 +212,8 @@ const SYSTEM_PROMPT_BASE = [
   'Include exactly 2 variants, each assuming a meaningfully DIFFERENT interpretation or goal than the primary.'
 ].join('\n');
 
-// Length styles the user can pick in the panel (v0.3.0).
-// '' / 'balanced' adds nothing — the base prompt already matches effort to need.
+// Length styles the user can pick in the panel. 'balanced' adds nothing —
+// the base prompt already matches effort to need.
 const STYLE_HINTS = {
   concise: 'LENGTH: The user asked for a SUPER SHORT, concise version. Compress the suggestion to 1-2 tight sentences that keep only the essential ask. No preamble, no filler, no bullet padding.',
   detailed: 'LENGTH: The user asked for a LONG, descriptive version. Expand the suggestion with relevant context, explicit constraints, desired output format and specifics - while staying strictly faithful to what the draft implies. Never invent facts.',
@@ -267,7 +230,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     improvePrompt(msg.text, false, msg.style)
       .then((data) => sendResponse({ ok: true, data }))
       .catch((err) => sendResponse({ ok: false, error: String((err && err.message) || err) }));
-    return true; // keep the message channel open for the async reply
+    return true; // keep the channel open for the async reply
   }
 
   if (msg && msg.type === 'listModels') {
@@ -300,17 +263,14 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 async function getConfig() {
   const { provider, apiKey, model } = await chrome.storage.local.get(['provider', 'apiKey', 'model']);
   const cfg = providerConfig(provider);
-  let effectiveModel = (model || '').trim();
-  // reset the model if it belongs to another provider's list
-  if (!effectiveModel || (cfg.models.indexOf(effectiveModel) === -1 && !cfgAllowCustom(provider))) {
-    effectiveModel = cfg.defaultModel;
-  }
-  return { provider: provider || DEFAULT_PROVIDER, cfg, apiKey: (apiKey || '').trim(), model: effectiveModel };
-}
-
-function cfgAllowCustom(providerName) {
-  // every provider accepts a custom model id typed by the user
-  return true;
+  return {
+    provider: provider || DEFAULT_PROVIDER,
+    cfg,
+    apiKey: (apiKey || '').trim(),
+    // empty storage falls back to the provider default; anything else (incl.
+    // custom ids typed by the user) is honored as-is
+    model: (model || '').trim() || cfg.defaultModel
+  };
 }
 
 async function tinyChat(cfg, apiKey, model) {

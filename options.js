@@ -1,34 +1,7 @@
 /* Subtext — options page logic (multi-provider, free tiers supported) */
 
 const $ = (id) => document.getElementById(id);
-
-// keep in sync with PROVIDERS in background.js
-const PROVIDERS = {
-  gemini: {
-    models: ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.5-flash', 'gemini-flash-latest', 'gemini-2.5-flash'],
-    defaultModel: 'gemini-3.8-flash',
-    keyUrl: 'https://aistudio.google.com/app/apikey',
-    keyNote: 'free, no credit card needed'
-  },
-  groq: {
-    models: ['openai/gpt-oss-120b', 'openai/gpt-oss-20b'],
-    defaultModel: 'openai/gpt-oss-120b',
-    keyUrl: 'https://console.groq.com/keys',
-    keyNote: 'free tier, no credit card needed'
-  },
-  openrouter: {
-    models: ['meta-llama/llama-3.3-70b-instruct:free', 'google/gemini-2.0-flash-exp:free'],
-    defaultModel: 'meta-llama/llama-3.3-70b-instruct:free',
-    keyUrl: 'https://openrouter.ai/settings/keys',
-    keyNote: 'free model ids rotate — any :free model works, or type a custom one'
-  },
-  openai: {
-    models: ['gpt-4o-mini', 'gpt-4o', 'gpt-4.1-mini'],
-    defaultModel: 'gpt-4o-mini',
-    keyUrl: 'https://platform.openai.com/api-keys',
-    keyNote: 'paid, requires billing'
-  }
-};
+// PROVIDERS comes from providers.js (shared with the service worker)
 
 function setStatus(text, cls) {
   const s = $('status');
@@ -36,15 +9,15 @@ function setStatus(text, cls) {
   s.className = cls || '';
 }
 
-function rebuildModelSelect(providerKey, selectedModel) {
-  const cfg = PROVIDERS[providerKey];
+// one builder for both the per-provider defaults and a freshly fetched live list
+function fillModelSelect(models, defaultModel, selectedModel) {
   const sel = $('model');
   sel.innerHTML = '';
 
-  cfg.models.forEach((m) => {
+  models.forEach((m) => {
     const o = document.createElement('option');
     o.value = m;
-    o.textContent = m + (m === cfg.defaultModel ? '  (default)' : '');
+    o.textContent = m + (m === defaultModel ? '  (default)' : '');
     sel.appendChild(o);
   });
   const custom = document.createElement('option');
@@ -52,7 +25,7 @@ function rebuildModelSelect(providerKey, selectedModel) {
   custom.textContent = 'Custom…';
   sel.appendChild(custom);
 
-  if (selectedModel && cfg.models.indexOf(selectedModel) !== -1) {
+  if (selectedModel && models.indexOf(selectedModel) !== -1) {
     sel.value = selectedModel;
     $('customWrap').hidden = true;
   } else if (selectedModel && selectedModel !== 'custom') {
@@ -60,7 +33,7 @@ function rebuildModelSelect(providerKey, selectedModel) {
     $('customModel').value = selectedModel;
     $('customWrap').hidden = false;
   } else {
-    sel.value = cfg.defaultModel;
+    sel.value = defaultModel;
     $('customWrap').hidden = true;
   }
 }
@@ -78,38 +51,15 @@ async function load() {
   $('apiKey').value = apiKey;
   $('autoSuggest').checked = autoSuggest !== false;
   syncProviderUI();
-  rebuildModelSelect(provider, model);
-}
-
-function rebuildModelSelectFromList(models, selectedModel) {
-  const sel = $('model');
-  sel.innerHTML = '';
-  models.forEach((m) => {
-    const o = document.createElement('option');
-    o.value = m;
-    o.textContent = m;
-    sel.appendChild(o);
-  });
-  const custom = document.createElement('option');
-  custom.value = 'custom';
-  custom.textContent = 'Custom…';
-  sel.appendChild(custom);
-
-  if (selectedModel && models.indexOf(selectedModel) !== -1) {
-    sel.value = selectedModel;
-    $('customWrap').hidden = true;
-  } else if (selectedModel) {
-    sel.value = 'custom';
-    $('customModel').value = selectedModel;
-    $('customWrap').hidden = false;
-  }
+  const cfg = PROVIDERS[provider] || PROVIDERS.gemini;
+  fillModelSelect(cfg.models, cfg.defaultModel, model);
 }
 
 async function refreshModels() {
   setStatus('Loading model list from provider…', '');
   const res = await chrome.runtime.sendMessage({ type: 'listModels' });
   if (res && res.ok && res.models && res.models.length) {
-    rebuildModelSelectFromList(res.models, res.default || null);
+    fillModelSelect(res.models, res.default || null, res.default || null);
     setStatus('Loaded ' + res.models.length + ' models. Using: ' + res.default, 'ok');
   } else {
     setStatus('Could not load models: ' + ((res && res.error) || 'no response') + ' — check the key is saved first.', 'bad');
@@ -164,7 +114,8 @@ async function testKey() {
 $('provider').addEventListener('change', () => {
   syncProviderUI();
   // switching providers resets the model to that provider's default
-  rebuildModelSelect($('provider').value, null);
+  const cfg = PROVIDERS[$('provider').value];
+  fillModelSelect(cfg.models, cfg.defaultModel, null);
 });
 $('model').addEventListener('change', () => {
   $('customWrap').hidden = $('model').value !== 'custom';

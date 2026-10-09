@@ -1,4 +1,4 @@
-# Subtext — prototype v0.4.2
+# Subtext v0.5.0
 
 **Say what you meant.** Subtext is a Chrome extension that reads the rough prompt
 you just typed into an AI chat, infers what you *actually* want to accomplish, and
@@ -10,29 +10,14 @@ panel, same keys everywhere.
 
 ---
 
-## Name brainstorm (why "Subtext" for now)
-
-Working title: **Subtext** — it reads between your lines, and it lives as a subtle
-layer on top of the app you're already using. Alternates worth keeping in the drawer:
-
-| Name | Angle / tagline |
-|---|---|
-| **Subtext** | "it reads between your lines" — overlay + intent inference |
-| **Meant** | "Say what you meant." — clean, one word, emotionally exact |
-| **Reframe** | every suggestion is a reframe of your message |
-
-Renaming later is a 2-minute job: change `NAME` in `content.js` and the `name`
-fields in `manifest.json`.
-
----
-
 ## Install (Load unpacked)
 
-1. Download or clone this repo.
-2. Open Chrome and go to `chrome://extensions`.
-3. Turn on **Developer mode** (toggle, top right).
-4. Click **Load unpacked** and select this folder (the one containing `manifest.json`).
-5. Pin "Subtext" to the toolbar, click its icon → **Open Settings**.
+1. Download the zip from the releases page (or clone this repo).
+2. Unzip it.
+3. Open Chrome and go to `chrome://extensions`.
+4. Turn on **Developer mode** (toggle, top right).
+5. Click **Load unpacked** and select the unzipped folder (the one containing `manifest.json`).
+6. Pin "Subtext" to the toolbar, click its icon → **Open Settings**.
 
 ## Configure (one time, free)
 
@@ -60,22 +45,16 @@ no accounts, no servers of ours.
 
 1. Open any supported site (chatgpt.com, claude.ai, gemini.google.com,
    perplexity.ai, chat.deepseek.com) and type a rough, messy prompt (8+ characters).
-2. A small **Improve** chip appears above the message box (top-right corner).
+2. A small **Improve** chip appears, centered above the message box.
 
 Four ways to trigger a suggestion — no hotkey needed:
 
 - **Pause while typing** — auto-suggest pops up on its own ~1.2s after you stop (toggle in Settings)
 - **Tab** inside the message box
-- Click the **Improve** chip
+- Click the **Improve** chip above the message box
 - **Alt+Shift+I** (always works)
 
-> v0.4.1 rewired trigger detection: the document itself now hears every keystroke
-> (capture-phase `input`/`compositionend`/`paste`), focus re-binds the editor
-> instantly, and auto/Tab re-discover the box live at fire time — previously a
-> wrong first discovery (e.g. the site's search box) could silently kill both
-> auto-suggest and Tab while Alt+Shift+I kept working.
->
-> v0.4.2 makes the card a **live companion**: while it is open it keeps
+> The card is a **live companion**: while it is open it keeps
 > re-writing as your draft evolves — every pause (≥1.2s, so it adapts to your
 > typing speed) produces a fresh suggestion, with a small 4s floor between API
 > calls so free-tier limits are respected. The preview line shows "Updating…"
@@ -104,9 +83,22 @@ quick FYI, etc.).
 
 ## Privacy
 
-- Your draft text is sent to your chosen provider (with your key) only when you click Improve.
+- Your draft text is sent to your chosen provider (with your key) only when you trigger a suggestion.
 - No analytics, no accounts, no servers of ours. The extension only talks to the
   API endpoint of the provider you picked (Gemini / Groq / OpenRouter / OpenAI).
+- Full policy: [PRIVACY.md](PRIVACY.md).
+
+## Publishing & distribution
+
+- **On your own website** — host the zip (or link GitHub Releases) with the
+  4-step install above. Chrome requires either the Web Store or developer
+  mode, so "Load unpacked" is the path for direct downloads.
+- **Chrome Web Store** — yes, this can be published. Registration is a one-time
+  $5 fee; the listing copy, permission justifications, privacy disclosures and
+  screenshot checklist are pre-written in [STORE_LISTING.md](STORE_LISTING.md).
+  A privacy policy URL (host PRIVACY.md) is required by the review process.
+- The codebase is MV3-compliant: no remote code, bundled JS only, minimal
+  permissions (`storage` + four provider API hosts).
 
 ## Troubleshooting
 
@@ -125,8 +117,8 @@ quick FYI, etc.).
 - **503 / "high demand"** — the provider is overloaded, your key and model are fine.
   The Test button retries once automatically and says so instead of reporting a failure
   of your setup; Improve retries once after ~2s.
-- **"model … is no longer available" (404)** — model ids retire over time. Since v0.1.4
-  the extension auto-fixes this: it tries the replacement model named in the provider's
+- **"model … is no longer available" (404)** — model ids retire over time. Subtext
+  auto-fixes this: it tries the replacement model named in the provider's
   own error message, then verifies candidates from the live model list one by one before
   switching. No manual action needed; if all roads fail the error shows exactly what the
   auto-fix attempted under `[auto-fix tried: …]`.
@@ -149,8 +141,7 @@ quick FYI, etc.).
 
 ## Status
 
-Prototype v0.4.2 (multi-site: ChatGPT / Claude / Gemini / Perplexity / DeepSeek —
+v0.5.0 (multi-site: ChatGPT / Claude / Gemini / Perplexity / DeepSeek —
 multi-provider: Gemini / Groq / OpenRouter / OpenAI, free tiers supported).
-Not on the Chrome Web Store — load unpacked only. Rename pending (decision above),
-API key is BYO. Built fast to test the core loop; expect rough edges and tell the
-extension author everything.
+Distributed as a direct download / Load unpacked; Chrome Web Store submission
+kit ready in STORE_LISTING.md. API key is BYO.

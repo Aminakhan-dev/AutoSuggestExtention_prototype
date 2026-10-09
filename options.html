@@ -69,11 +69,7 @@
 
     <label for="model" style="display:flex;align-items:baseline;gap:12px">Model <button type="button" id="refreshModels" class="linkish">Refresh model list</button></label>
     <select id="model">
-      <option value="gpt-4o-mini">gpt-4o-mini (recommended: fast + cheap)</option>
-      <option value="gpt-4o">gpt-4o</option>
-      <option value="gpt-4.1-mini">gpt-4.1-mini</option>
-      <option value="gpt-4.1">gpt-4.1</option>
-      <option value="o4-mini">o4-mini</option>
+      <option value="">loading…</option>
       <option value="custom">Custom…</option>
     </select>
     <div id="customWrap" hidden style="margin-top:8px">
@@ -100,6 +96,7 @@
       <b>Improve</b> chip, or use <b>Alt+Shift+I</b>.
     </div>
   </div>
+  <script src="providers.js"></script>
   <script src="options.js"></script>
 </body>
 </html>
