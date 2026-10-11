@@ -1,11 +1,11 @@
-# Chrome Web Store submission kit (v0.5.2)
+# Chrome Web Store submission kit (v0.5.3)
 
 Everything below is ready to paste into the [Developer Dashboard](https://chrome.google.com/webstore/devconsole).
 One-time registration fee: **$5 USD**.
 
 ## 1. Package
 
-- Upload the extension **zip** (the same `swym-extension-v0.5.2.zip` used for
+- Upload the extension **zip** (the same `swym-extension-v0.5.3.zip` used for
   website distribution — it must contain `manifest.json` at the zip root).
 - If the dashboard flags a version, bump `version` in `manifest.json` and
   re-zip; every upload must have a strictly higher version than the last.
