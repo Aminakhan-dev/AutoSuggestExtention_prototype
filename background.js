@@ -1,5 +1,5 @@
 /*
- * Subtext — background service worker.
+ * SWYM (say what you mean) — background service worker.
  * Owns the API key and all LLM traffic so page scripts never touch secrets.
  * Every provider is talked to through its OpenAI-compatible endpoint, so the
  * request path is one function; provider differences live in providers.js.
@@ -198,7 +198,7 @@ async function healModel(failText) {
 }
 
 const SYSTEM_PROMPT_BASE = [
-  'You are Subtext, an expert prompt engineer and communication coach built into a browser extension. The user typed a rough draft into an AI chat.',
+  'You are SWYM, an expert prompt engineer and communication coach built into a browser extension. The user typed a rough draft into an AI chat.',
   '',
   'Your job:',
   '1. Infer what the user is actually trying to accomplish - their real intent and desired outcome - reading between the lines.',
@@ -346,7 +346,7 @@ function providerConfigLabel(cfg) {
 
 async function improvePrompt(text, noRetry, style) {
   const { cfg, apiKey, model } = await getConfig();
-  if (!apiKey) throw new Error('No API key set. Click the Subtext toolbar icon, then Settings.');
+  if (!apiKey) throw new Error('No API key set. Click the SWYM toolbar icon, then Settings.');
   if (!text || !text.trim()) throw new Error('Nothing to improve - the message box looks empty.');
 
   let res;

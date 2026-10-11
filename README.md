@@ -1,6 +1,6 @@
-# Subtext v0.5.1
+# SWYM v0.5.2
 
-**Say what you meant.** Subtext is a Chrome extension that reads the rough prompt
+**Say what you mean.** SWYM is a Chrome extension that reads the rough prompt
 you just typed into an AI chat, infers what you *actually* want to accomplish, and
 quietly suggests a sharper version — in a small, non-intrusive panel above the
 message box. One click (or Ctrl+Enter) to use it, Esc to make it disappear.
@@ -17,11 +17,11 @@ panel, same keys everywhere.
 3. Open Chrome and go to `chrome://extensions`.
 4. Turn on **Developer mode** (toggle, top right).
 5. Click **Load unpacked** and select the unzipped folder (the one containing `manifest.json`).
-6. Pin "Subtext" to the toolbar, click its icon → **Open Settings**.
+6. Pin "SWYM" to the toolbar, click its icon → **Open Settings**.
 
 ## Configure (one time, free)
 
-**You do NOT need an OpenAI account.** Subtext supports free providers:
+**You do NOT need an OpenAI account.** SWYM supports free providers:
 
 | Provider | Cost | Get a key at | Notes |
 |---|---|---|---|
@@ -34,7 +34,7 @@ Steps:
 
 1. Pick **Google Gemini** in Settings, click the key link, sign in with a Google
    account, **Create API key**, copy it.
-2. Paste into Subtext → **Save** → **Test key**.
+2. Paste into SWYM → **Save** → **Test key**.
 3. Done. Switch providers/models any time — custom model ids are allowed too.
 
 Your key is stored in `chrome.storage.local` — it stays in your browser and is
@@ -77,7 +77,7 @@ Four ways to trigger a suggestion — no hotkey needed:
 
 > `write me email to boss about leaving early tomorrow`
 
-Subtext should infer you want a professional, approval-seeking email and rewrite
+SWYM should infer you want a professional, approval-seeking email and rewrite
 the prompt accordingly — with variants for different readings (formal request vs
 quick FYI, etc.).
 
@@ -104,12 +104,12 @@ quick FYI, etc.).
 
 - **Chip never appears** — reload the chat tab after loading the extension;
   make sure you've typed at least 8 characters. On any supported site, click
-  inside the message box once — Subtext trusts your focus over everything else.
+  inside the message box once — SWYM trusts your focus over everything else.
 - **Auto-suggest or Tab never fires** — first, reload the extension AND refresh
   the chat tab (content scripts do not hot-swap). Then open DevTools → Console
   on the chat tab, enable **Verbose** level, and type + pause: you should see
-  `[Subtext vX] auto gate: …` lines explaining the decision (short / unchanged /
-  cooldown / backoff), and `[Subtext vX] auto-suggest: pause detected` when it
+  `[SWYM vX] auto gate: …` lines explaining the decision (short / unchanged /
+  cooldown / backoff), and `[SWYM vX] auto-suggest: pause detected` when it
   fires. No lines at all = the tab is running a stale build — refresh it.
 - **"No API key set"** — toolbar icon → Open Settings → pick a free provider, save a key.
 - **Provider error 429** — you hit the free-tier rate limit; wait a bit or switch provider.
@@ -117,7 +117,7 @@ quick FYI, etc.).
 - **503 / "high demand"** — the provider is overloaded, your key and model are fine.
   The Test button retries once automatically and says so instead of reporting a failure
   of your setup; Improve retries once after ~2s.
-- **"model … is no longer available" (404)** — model ids retire over time. Subtext
+- **"model … is no longer available" (404)** — model ids retire over time. SWYM
   auto-fixes this: it tries the replacement model named in the provider's
   own error message, then verifies candidates from the live model list one by one before
   switching. No manual action needed; if all roads fail the error shows exactly what the
@@ -127,7 +127,7 @@ quick FYI, etc.).
   `.ProseMirror`, `.ql-editor`, `role=textbox`, textareas, contenteditables),
   so renames are usually absorbed. If discovery truly fails, press Alt+Shift+I
   and the pill + console report names the exact suspect element.
-- **Extension console** — `chrome://extensions` → Subtext → *service worker* /
+- **Extension console** — `chrome://extensions` → SWYM → *service worker* /
   *Inspect views* for logs.
 
 ## Roadmap ideas (from the v0 discussion)
@@ -141,10 +141,11 @@ quick FYI, etc.).
 
 ## Status
 
-v0.5.1 (multi-site: ChatGPT / Claude / Gemini / Perplexity / DeepSeek —
+v0.5.2 (multi-site: ChatGPT / Claude / Gemini / Perplexity / DeepSeek —
 multi-provider: Gemini / Groq / OpenRouter / OpenAI, free tiers supported).
-v0.5.1 hardens the keyboard apply path for ProseMirror composers (Claude):
+v0.5.1 hardened the keyboard apply path for ProseMirror composers (Claude):
 editor readback normalizes zero-width markers and CRLF before matching, editor
 writes are verified with one paste retry, and apply targets are re-discovered
-live. Distributed as a direct download / Load unpacked; Chrome Web Store
-submission kit ready in STORE_LISTING.md. API key is BYO.
+live. v0.5.2 is the SWYM rebrand — same engine, new name. Distributed as a
+direct download / Load unpacked; Chrome Web Store submission kit ready in
+STORE_LISTING.md. API key is BYO.

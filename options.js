@@ -1,4 +1,4 @@
-/* Subtext — options page logic (multi-provider, free tiers supported) */
+/* SWYM — options page logic (multi-provider, free tiers supported) */
 
 const $ = (id) => document.getElementById(id);
 // PROVIDERS comes from providers.js (shared with the service worker)

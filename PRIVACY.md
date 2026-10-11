@@ -1,10 +1,10 @@
-# Subtext — Privacy Policy
+# SWYM — Privacy Policy
 
 Last updated: October 9, 2026
 
-Subtext is a browser extension that helps you rewrite rough drafts typed into AI
+SWYM is a browser extension that helps you rewrite rough drafts typed into AI
 chat websites. This policy explains exactly what data the extension handles.
-The short version: **Subtext has no backend, no account system, no analytics,
+The short version: **SWYM has no backend, no account system, no analytics,
 and collects nothing.**
 
 ## What data the extension processes

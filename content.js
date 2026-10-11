@@ -1,5 +1,5 @@
 /*
- * Subtext — content script
+ * SWYM (say what you mean) — content script
  * Runs on ChatGPT, Claude, Gemini, Perplexity and DeepSeek.
  * Detects the message box, shows a subtle "Improve" chip, and renders the
  * suggestion panel inside a Shadow DOM so host page styles cannot clash.
@@ -8,7 +8,7 @@
 (() => {
   'use strict';
 
-  const NAME = 'Subtext';
+  const NAME = 'SWYM';
   const VERSION = (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.getManifest)
     ? String(chrome.runtime.getManifest().version || '') : '';   // stamped into every pill/console line
   const MIN_CHARS = 8;      // suggestions below this read as noise
@@ -68,7 +68,7 @@
       border: 2px solid rgba(99,102,241,.25);
       border-top-color: var(--accent);
       border-radius: 50%;
-      animation: subtext-spin .7s linear infinite;
+      animation: swym-spin .7s linear infinite;
       flex: none;
       display: inline-block;
     }
@@ -76,7 +76,7 @@
     @media (prefers-color-scheme: dark) {
       .chip .chip-spin { border-color: rgba(17,24,39,.3); border-top-color: #111827; }
     }
-    @keyframes subtext-spin { to { transform: rotate(360deg); } }
+    @keyframes swym-spin { to { transform: rotate(360deg); } }
 
     /* panel: slim glass card — one quiet line by default, expands on demand */
     .panel {
@@ -92,9 +92,9 @@
       box-shadow: var(--shadow);
       font: 400 12.5px/1.5 system-ui, -apple-system, 'Segoe UI', sans-serif;
       overflow: hidden;
-      animation: subtext-pop .14s ease-out;
+      animation: swym-pop .14s ease-out;
     }
-    @keyframes subtext-pop {
+    @keyframes swym-pop {
       from { opacity: 0; transform: translateY(6px) scale(.99); }
       to { opacity: 1; transform: none; }
     }
@@ -287,8 +287,8 @@
   // console diagnostics; never let logging throw into the hot path
   function log(level, msg, rest) {
     try {
-      if (rest === undefined) console[level]('[Subtext v' + VERSION + '] ' + msg);
-      else console[level]('[Subtext v' + VERSION + '] ' + msg, rest);
+      if (rest === undefined) console[level]('[' + NAME + ' v' + VERSION + '] ' + msg);
+      else console[level]('[' + NAME + ' v' + VERSION + '] ' + msg, rest);
     } catch (_) { /* devtools window may be gone */ }
   }
 
@@ -714,7 +714,7 @@
     if (host && host.isConnected) return;
 
     host = document.createElement('div');
-    host.id = 'subtext-host';
+    host.id = 'swym-host';
     root = host.attachShadow({ mode: 'open' });
 
     const style = document.createElement('style');
@@ -725,7 +725,7 @@
     chip.type = 'button';
     chip.className = 'chip';
     chip.hidden = true;
-    chip.title = 'Subtext: suggest a sharper version (Tab or Alt+Shift+I)';
+    chip.title = 'SWYM: suggest a sharper version (Tab or Alt+Shift+I)';
     chip.innerHTML =
       '<svg class="spark" width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">' +
       '<path d="M12 2l2.2 7.8L22 12l-7.8 2.2L12 22l-2.2-7.8L2 12l7.8-2.2L12 2z" fill="currentColor"/></svg>' +
@@ -765,7 +765,7 @@
     const el = document.createElement('div');
     el.className = 'panel';
     el.hidden = true;
-    el.title = 'Subtext — say what you meant';
+    el.title = 'SWYM — say what you mean';
 
     const rowMain = document.createElement('div');
     rowMain.className = 'row-main';

@@ -1,4 +1,4 @@
-/* Subtext — popup logic */
+/* SWYM — popup logic */
 
 const statusEl = document.getElementById('status');
 const settingsBtn = document.getElementById('settings');

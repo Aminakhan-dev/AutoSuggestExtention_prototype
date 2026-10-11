@@ -1,11 +1,11 @@
-# Chrome Web Store submission kit (v0.5.1)
+# Chrome Web Store submission kit (v0.5.2)
 
 Everything below is ready to paste into the [Developer Dashboard](https://chrome.google.com/webstore/devconsole).
 One-time registration fee: **$5 USD**.
 
 ## 1. Package
 
-- Upload the extension **zip** (the same `subtext-extension-v0.5.1.zip` used for
+- Upload the extension **zip** (the same `swym-extension-v0.5.2.zip` used for
   website distribution — it must contain `manifest.json` at the zip root).
 - If the dashboard flags a version, bump `version` in `manifest.json` and
   re-zip; every upload must have a strictly higher version than the last.
@@ -14,7 +14,7 @@ One-time registration fee: **$5 USD**.
 
 **Name** (max 45 chars)
 
-> Subtext — say what you meant
+> SWYM — say what you mean
 
 **Short description** (max 132 chars)
 
@@ -24,7 +24,7 @@ One-time registration fee: **$5 USD**.
 
 > Type messy, send sharp.
 >
-> Subtext watches the message box on the AI chats you already use — ChatGPT,
+> SWYM watches the message box on the AI chats you already use — ChatGPT,
 > Claude, Gemini, Perplexity and DeepSeek. When you pause after typing a rough
 > draft, it quietly suggests a sharper, more specific version of your prompt,
 > plus two alternative readings of what you might have meant.
@@ -47,7 +47,7 @@ One-time registration fee: **$5 USD**.
 
 ## 3. Single purpose (dashboard field)
 
-> Subtext reads the draft text in the message box of supported AI chat sites
+> SWYM reads the draft text in the message box of supported AI chat sites
 > and suggests an improved version of that prompt, shown in a panel over the
 > message box.
 
@@ -65,7 +65,7 @@ One-time registration fee: **$5 USD**.
 
 - Content script host permissions (chatgpt.com, claude.ai, gemini.google.com,
   perplexity.ai, chat.deepseek.com) — "The content script detects the message
-  box on these AI chat sites and displays Subtext's suggestion panel near it.
+  box on these AI chat sites and displays SWYM's suggestion panel near it.
   It does not read or modify any other page content."
 
 - Check "Remote code": **No** — all code is bundled; the extension only makes

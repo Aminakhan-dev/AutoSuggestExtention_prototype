@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Subtext — say what you meant",
-  "short_name": "Subtext",
-  "version": "0.5.1",
+  "name": "SWYM — say what you mean",
+  "short_name": "SWYM",
+  "version": "0.5.2",
   "description": "Reads your draft in ChatGPT, Claude, Gemini, Perplexity or DeepSeek, infers what you actually want, and quietly suggests a sharper prompt. One click to use it.",
   "permissions": ["storage"],
   "host_permissions": [
@@ -32,7 +32,7 @@
     }
   ],
   "action": {
-    "default_title": "Subtext",
+    "default_title": "SWYM",
     "default_popup": "popup.html",
     "default_icon": {
       "16": "icons/icon16.png",

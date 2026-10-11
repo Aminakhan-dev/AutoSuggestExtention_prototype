@@ -1,5 +1,5 @@
 /*
- * Subtext — provider catalog.
+ * SWYM — provider catalog.
  * Single source of truth shared by the service worker (importScripts) and
  * the options page (<script>). Model ids here are only starting defaults;
  * the background heals stale ids from the provider's live list at runtime.
