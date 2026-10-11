@@ -1,5 +1,5 @@
 /*
- * SWYM (say what you mean) — content script
+ * SWYM (Say What You Mean) — content script
  * Runs on ChatGPT, Claude, Gemini, Perplexity and DeepSeek.
  * Detects the message box, shows a subtle "Improve" chip, and renders the
  * suggestion panel inside a Shadow DOM so host page styles cannot clash.
@@ -765,7 +765,7 @@
     const el = document.createElement('div');
     el.className = 'panel';
     el.hidden = true;
-    el.title = 'SWYM — say what you mean';
+    el.title = 'SWYM — Say What You Mean';
 
     const rowMain = document.createElement('div');
     rowMain.className = 'row-main';

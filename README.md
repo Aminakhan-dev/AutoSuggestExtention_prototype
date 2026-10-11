@@ -1,6 +1,6 @@
-# SWYM v0.5.3
+# SWYM v0.5.4
 
-**Say what you mean.** SWYM is a Chrome extension that reads the rough prompt
+**Say What You Mean.** SWYM is a Chrome extension that reads the rough prompt
 you just typed into an AI chat, infers what you *actually* want to accomplish, and
 quietly suggests a sharper version — in a small, non-intrusive panel above the
 message box. One click (or Ctrl+Enter) to use it, Esc to make it disappear.
@@ -141,11 +141,11 @@ quick FYI, etc.).
 
 ## Status
 
-v0.5.3 (multi-site: ChatGPT / Claude / Gemini / Perplexity / DeepSeek —
+v0.5.4 (multi-site: ChatGPT / Claude / Gemini / Perplexity / DeepSeek —
 multi-provider: Gemini / Groq / OpenRouter / OpenAI, free tiers supported).
 v0.5.1 hardened the keyboard apply path for ProseMirror composers (Claude):
 editor readback normalizes zero-width markers and CRLF before matching, editor
 writes are verified with one paste retry, and apply targets are re-discovered
-live. v0.5.3 trims the manifest description to the Web Store 132-char limit (was 159) and carries the SWYM rebrand — same engine, new name. Distributed as a
+live. v0.5.4 title-cases the tagline (SWYM — Say What You Mean); v0.5.3 trimmed the manifest description to the Web Store 132-char limit (was 159) and carries the SWYM rebrand — same engine, new name. Distributed as a
 direct download / Load unpacked; Chrome Web Store submission kit ready in
 STORE_LISTING.md. API key is BYO.
