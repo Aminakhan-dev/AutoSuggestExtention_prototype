@@ -1,11 +1,11 @@
-# Chrome Web Store submission kit (v0.5.0)
+# Chrome Web Store submission kit (v0.5.1)
 
 Everything below is ready to paste into the [Developer Dashboard](https://chrome.google.com/webstore/devconsole).
 One-time registration fee: **$5 USD**.
 
 ## 1. Package
 
-- Upload the extension **zip** (the same `subtext-extension-v0.5.0.zip` used for
+- Upload the extension **zip** (the same `subtext-extension-v0.5.1.zip` used for
   website distribution — it must contain `manifest.json` at the zip root).
 - If the dashboard flags a version, bump `version` in `manifest.json` and
   re-zip; every upload must have a strictly higher version than the last.

@@ -1,4 +1,4 @@
-# Subtext v0.5.0
+# Subtext v0.5.1
 
 **Say what you meant.** Subtext is a Chrome extension that reads the rough prompt
 you just typed into an AI chat, infers what you *actually* want to accomplish, and
@@ -141,7 +141,10 @@ quick FYI, etc.).
 
 ## Status
 
-v0.5.0 (multi-site: ChatGPT / Claude / Gemini / Perplexity / DeepSeek —
+v0.5.1 (multi-site: ChatGPT / Claude / Gemini / Perplexity / DeepSeek —
 multi-provider: Gemini / Groq / OpenRouter / OpenAI, free tiers supported).
-Distributed as a direct download / Load unpacked; Chrome Web Store submission
-kit ready in STORE_LISTING.md. API key is BYO.
+v0.5.1 hardens the keyboard apply path for ProseMirror composers (Claude):
+editor readback normalizes zero-width markers and CRLF before matching, editor
+writes are verified with one paste retry, and apply targets are re-discovered
+live. Distributed as a direct download / Load unpacked; Chrome Web Store
+submission kit ready in STORE_LISTING.md. API key is BYO.

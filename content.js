@@ -371,6 +371,16 @@
     return false;
   }
 
+  // Best connected editor for apply/keyboard paths: the tracked binding when
+  // it is still alive, else whatever the user is actually focused on. Recovers
+  // from composers the site swaps out after the panel has already opened.
+  function resolveEditor() {
+    if (currentEditor && currentEditor.isConnected) return currentEditor;
+    const deep = deepActiveElement();
+    if (deep && isPlausibleEditor(deep)) return deep;
+    return null;
+  }
+
   // ---------------- auto-suggest (typing pause trigger) ----------------
   // Pure decision gate so it can be unit-tested without a DOM.
   function shouldAutoRun(st) {
@@ -639,9 +649,35 @@
   function getText(editor) {
     if (!editor) return '';
     if (editor.tagName === 'TEXTAREA' || editor.tagName === 'INPUT') {
-      return String(editor.value || '').trim();
+      return String(editor.value || '').replace(/\r\n?/g, '\n').trim();
     }
-    return (editor.innerText || editor.textContent || '').replace(/\u200B/g, '').trim();
+    return (editor.innerText || editor.textContent || '')
+      .replace(/[\u200B-\u200D\uFEFF]/g, '')
+      .replace(/\r\n?/g, '\n')
+      .trim();
+  }
+
+  // ProseMirror-style composers sometimes accept execCommand yet drop the
+  // change on their next redraw. Write, verify what the DOM actually shows,
+  // then retry once through a synthetic paste before giving up.
+  function writeCE(editor, text) {
+    const attempt = (usePaste) => {
+      editor.focus();
+      const sel = window.getSelection();
+      const range = document.createRange();
+      range.selectNodeContents(editor);
+      sel.removeAllRanges();
+      sel.addRange(range);
+      if (usePaste) {
+        pasteFallback(editor, text);
+      } else {
+        try {
+          document.execCommand('insertText', false, text);
+        } catch (_) { /* the paste retry below takes over */ }
+      }
+      return getText(editor) === text;
+    };
+    return attempt(false) || attempt(true);
   }
 
   function setText(editor, text) {
@@ -654,19 +690,7 @@
       setter.call(editor, text);
       editor.dispatchEvent(new Event('input', { bubbles: true }));
     } else if (editor.isContentEditable) {
-      editor.focus();
-      const sel = window.getSelection();
-      const range = document.createRange();
-      range.selectNodeContents(editor);
-      sel.removeAllRanges();
-      sel.addRange(range);
-      let ok = false;
-      try {
-        ok = document.execCommand('insertText', false, text);
-      } catch (_) {
-        ok = false;
-      }
-      if (!ok) pasteFallback(editor, text);
+      writeCE(editor, text);
     } else {
       // known composer element that is not editable in this build — best effort
       editor.textContent = text;
@@ -1019,8 +1043,9 @@
   }
 
   function applyCurrent() {
-    if (!currentEditor || !segments[activeSeg]) return;
-    setText(currentEditor, segments[activeSeg].text);
+    const ed = resolveEditor();
+    if (!ed || !segments[activeSeg]) return;
+    setText(ed, segments[activeSeg].text);
     hidePanel();
     flashChip('Applied');
   }
@@ -1208,25 +1233,24 @@
       return;
     }
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && panel && !panel.hidden && resultForText) {
-      const edC = currentEditor;
-      const inEd = !!(edC && edC.isConnected);
-      const draftC = inEd ? getText(edC) : '';
-      if (!inEd || draftC === resultForText) {
+      const edC = resolveEditor();
+      const draftC = edC ? getText(edC) : '';
+      if (!edC || draftC === resultForText) {
         e.preventDefault();
+        e.stopPropagation();
         applyCurrent();
+      } else {
+        log('debug', 'ctrl+enter: draft moved on since the result, falling through');
       }
-      // draft moved on since the result was built → do nothing; Ctrl+Enter
-      // falls through to the page so resumed typing is never hijacked
       return;
     }
     // 1/2/3 pick a variant, C copies — armed only while the panel shows a
     // result for the CURRENT draft text, so resumed typing is never hijacked
     if (panel && !panel.hidden && !e.altKey && !e.ctrlKey && !e.metaKey && resultForText
         && (e.key === '1' || e.key === '2' || e.key === '3' || e.key === 'c')) {
-      const ed = currentEditor;
-      const inEditor = !!(ed && ed.isConnected);
-      const draft = inEditor ? getText(ed) : '';
-      if (!inEditor || draft === resultForText) {
+      const ed = resolveEditor();
+      const draft = ed ? getText(ed) : '';
+      if (!ed || draft === resultForText) {
         if (e.key === 'c') {
           e.preventDefault();
           copyActive();
@@ -1242,6 +1266,7 @@
     }
     if (e.altKey && e.shiftKey && !e.ctrlKey && !e.metaKey && e.code === 'KeyI') {
       e.preventDefault();
+      e.stopPropagation();
       trigger();
       return;
     }
