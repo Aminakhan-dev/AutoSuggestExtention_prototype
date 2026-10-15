@@ -136,7 +136,70 @@
     .icon-btn .chev { transition: transform .16s ease; }
     .panel.expanded .icon-btn .chev { transform: rotate(180deg); }
 
-    .expander { padding: 2px 12px 10px; }
+    /* drag grip: leftmost element of the header row */
+    .grip {
+      flex: none;
+      border: 0; background: transparent; color: var(--muted);
+      width: 18px; height: 22px; margin-left: -5px;
+      border-radius: 6px; cursor: grab; padding: 0;
+      display: inline-flex; align-items: center; justify-content: center;
+      touch-action: none;
+    }
+    .grip:hover { color: var(--fg); background: rgba(127, 127, 127, .14); }
+    .panel.dragging .grip { cursor: grabbing; }
+
+    /* loading: slim progress bar + rotating status lines */
+    .loadbar {
+      position: absolute; top: 0; left: 0;
+      height: 2px; width: 32%;
+      background: var(--accent);
+      border-radius: 2px;
+      animation: swym-slide 1.15s ease-in-out infinite;
+    }
+    @keyframes swym-slide { from { transform: translateX(-110%); } to { transform: translateX(410%); } }
+    .panel:not(.loading) .loadbar { display: none; }
+
+    /* corner resize handle */
+    .resize-h {
+      position: absolute; right: 0; bottom: 0;
+      width: 15px; height: 15px;
+      cursor: nwse-resize; touch-action: none; z-index: 3;
+    }
+    .resize-h::after {
+      content: ''; position: absolute; right: 3px; bottom: 3px;
+      width: 7px; height: 7px;
+      border-right: 2px solid var(--muted);
+      border-bottom: 2px solid var(--muted);
+      border-radius: 1px; opacity: .5;
+    }
+    .resize-h:hover::after { opacity: 1; }
+
+    .foot .spacer { flex: 1 1 auto; }
+
+    /* wide (horizontal) expanded layout: text left, controls right */
+    .panel.wide { width: min(660px, calc(100vw - 24px)); }
+    .panel.wide .expander {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 176px;
+      grid-template-areas:
+        "intent intent"
+        "body segs"
+        "body styles"
+        "body foot"
+        "kbd kbd";
+      column-gap: 14px; row-gap: 3px; align-items: start;
+    }
+    .panel.wide .errbox { grid-column: 1 / -1; }
+    .panel.wide .intent-mini { grid-area: intent; margin: 4px 0 2px; }
+    .panel.wide .body { grid-area: body; max-height: min(280px, 38vh); }
+    .panel.wide .segs { grid-area: segs; flex-direction: column; flex-wrap: nowrap; align-items: stretch; margin-bottom: 8px; }
+    .panel.wide .seg { max-width: none; }
+    .panel.wide .styles { grid-area: styles; flex-direction: column; flex-wrap: nowrap; align-items: stretch; margin-bottom: 8px; }
+    .panel.wide .styles-label { margin: 0 0 2px; }
+    .panel.wide .foot { grid-area: foot; }
+    .panel.wide .kbd-hint { grid-area: kbd; }
+
+    .expander { padding: 2px 12px 10px; max-height: min(340px, 46vh); overflow-y: auto; }
     .panel:not(.expanded) .expander { display: none; }
 
     .errbox {
@@ -245,6 +308,14 @@
   let keepExpandedOnResult = false; // style/variant reruns keep the expander open
   let autoMutedUntil = 0;      // snooze after an explicit dismissal (X / Esc)
   let resultSuppressed = false; // response whose card the user closed mid-flight
+
+  // panel comfort state (v0.6.0): drag-to-move, wide layout, width, loading ticker
+  let panelPinned = false;     // user dragged the card somewhere custom
+  let pinnedPos = null;        // {x, y} viewport coords while pinned
+  let panelWide = false;       // horizontal expanded layout
+  let loadTicker = null;       // rotating status line timer
+  let loadStart = 0;
+  let gripMoved = false;       // suppress the click that follows a drag
 
   // Trigger timing. Every keystroke resets the debounce, so a suggestion lands
   // on the first real pause whatever the typing speed. The cooldown is only an
@@ -467,6 +538,20 @@
         if (area === 'local' && changes.autoSuggest) autoEnabled = changes.autoSuggest.newValue !== false;
       });
     }
+  } catch (_) {}
+
+  // panel preferences: wide layout, width, pinned position
+  try {
+    chrome.storage.local.get(['panelWide', 'panelW', 'panelPos'], (r) => {
+      if (!r) return;
+      if (r.panelWide) {
+        panelWide = true;
+        if (panel) panel.classList.add('wide');
+        if (ui.layoutBtn) ui.layoutBtn.title = 'Switch to tall layout';
+      }
+      if (typeof r.panelW === 'number' && panel) applyPanelWidth(r.panelW);
+      if (r.panelPos && typeof r.panelPos.x === 'number') pinnedPos = r.panelPos;
+    });
   } catch (_) {}
 
   // ---------------- editor discovery ----------------
@@ -766,7 +851,18 @@
     el.className = 'panel';
     el.hidden = true;
     el.title = 'SWYM — Say What You Mean';
+    const loadbar = document.createElement('div');
+    loadbar.className = 'loadbar';
+    el.appendChild(loadbar);
 
+    const grip = document.createElement('button');
+    grip.type = 'button';
+    grip.className = 'grip';
+    grip.title = 'Drag to move — double-click to re-anchor above the message box';
+    grip.innerHTML = '<svg width="10" height="14" viewBox="0 0 10 16" fill="none" aria-hidden="true">' +
+      '<circle cx="2.5" cy="2.5" r="1.4" fill="currentColor"/><circle cx="7.5" cy="2.5" r="1.4" fill="currentColor"/>' +
+      '<circle cx="2.5" cy="8" r="1.4" fill="currentColor"/><circle cx="7.5" cy="8" r="1.4" fill="currentColor"/>' +
+      '<circle cx="2.5" cy="13.5" r="1.4" fill="currentColor"/><circle cx="7.5" cy="13.5" r="1.4" fill="currentColor"/></svg>';
     const rowMain = document.createElement('div');
     rowMain.className = 'row-main';
     rowMain.title = 'Click to expand or collapse';
@@ -791,6 +887,7 @@
     closeBtn.title = 'Close';
     closeBtn.innerHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" aria-hidden="true">' +
       '<path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>';
+    rowMain.appendChild(grip);
     rowMain.appendChild(spark);
     rowMain.appendChild(loadSpin);
     rowMain.appendChild(preview);
@@ -804,6 +901,8 @@
     };
     rowMain.addEventListener('click', (e) => {
       if (closeBtn && (e.target === closeBtn || closeBtn.contains(e.target))) return;
+      if (gripMoved) { gripMoved = false; return; }  // click that trails a drag
+      if (e.target === grip || grip.contains(e.target)) return;
       toggle();
     });
     chev.addEventListener('click', (e) => { e.stopPropagation(); toggle(); });
@@ -889,8 +988,26 @@
     copyBtn.textContent = 'Copy';
     copyBtn.title = 'Copy to clipboard (C)';
     copyBtn.addEventListener('click', copyActive);
+    const footSpacer = document.createElement('span');
+    footSpacer.className = 'spacer';
+    const layoutBtn = document.createElement('button');
+    layoutBtn.type = 'button';
+    layoutBtn.className = 'icon-btn';
+    layoutBtn.title = 'Switch to wide layout';
+    layoutBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">' +
+      '<path d="M3 7h14M14 3l4 4-4 4M21 17H7M10 21l-4-4 4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    layoutBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      panelWide = !panelWide;
+      panel.classList.toggle('wide', panelWide);
+      layoutBtn.title = panelWide ? 'Switch to tall layout' : 'Switch to wide layout';
+      try { chrome.storage.local.set({ panelWide: panelWide }); } catch (_) {}
+      positionPanel();
+    });
     foot.appendChild(use);
     foot.appendChild(copyBtn);
+    foot.appendChild(footSpacer);
+    foot.appendChild(layoutBtn);
     expander.appendChild(foot);
 
     const kbd = document.createElement('div');
@@ -898,11 +1015,21 @@
     kbd.innerHTML = '<b>1</b>/<b>2</b>/<b>3</b> variant · <b>C</b> copy · <b>Ctrl+Enter</b> use · <b>Esc</b> close';
     expander.appendChild(kbd);
 
+    const resizeH = document.createElement('div');
+    resizeH.className = 'resize-h';
+    resizeH.title = 'Drag to resize';
+    el.appendChild(resizeH);
+    makeDraggable(grip);
+    makeResizable(resizeH);
+
     return {
       el: el,
       preview: preview,
       chev: chev,
       loadSpin: loadSpin,
+      grip: grip,
+      resizeH: resizeH,
+      layoutBtn: layoutBtn,
       errBox: errBox,
       errText: errText,
       keyBtn: keyBtn,
@@ -926,8 +1053,8 @@
     ui.errBox.hidden = true;
     ui.loadSpin.hidden = false;
     ui.chev.hidden = true;
-    ui.preview.className = 'preview is-load';
-    ui.preview.textContent = label || 'Thinking…';
+    panel.classList.add('loading');
+    startLoadTicker(label);
     ui.preview.title = '';
     ui.intentMini.hidden = true;
     ui.stylesRow.hidden = true;
@@ -941,6 +1068,8 @@
 
   function showPanelError(message) {
     panel.hidden = false;
+    stopLoadTicker();
+    panel.classList.remove('loading');
     ui.loadSpin.hidden = true;
     ui.chev.hidden = false;
     ui.intentMini.hidden = true;
@@ -999,6 +1128,8 @@
 
   function showPanelResult(intentText) {
     panel.hidden = false;
+    stopLoadTicker();
+    panel.classList.remove('loading');
     if (!keepExpandedOnResult) panel.classList.remove('expanded');
     keepExpandedOnResult = false;
     ui.errBox.hidden = true;
@@ -1038,6 +1169,8 @@
       autoMutedUntil = Date.now() + AUTO_MUTE_MS;
       if (busy) resultSuppressed = true;
     }
+    stopLoadTicker();
+    panel.classList.remove('loading');
     panel.hidden = true;
     refreshChip();
   }
@@ -1057,6 +1190,129 @@
     try {
       navigator.clipboard.writeText(t).then(() => showHint('Copied to clipboard.'), fail);
     } catch (_) { fail(); }
+  }
+
+  // ---------------- panel comfort: drag, resize, wide layout ----------------
+  const LOAD_LINES = ['Thinking…', 'Reading between the lines…', 'Sharpening…', 'Tightening the wording…', 'Almost there…'];
+
+  // rotating status lines + elapsed seconds, so a slow model never feels frozen
+  function startLoadTicker(label) {
+    stopLoadTicker();
+    loadStart = Date.now();
+    let i = 0;
+    ui.preview.className = 'preview is-load';
+    ui.preview.title = '';
+    ui.preview.textContent = label || LOAD_LINES[0];
+    loadTicker = setInterval(() => {
+      i++;
+      const secs = Math.round((Date.now() - loadStart) / 1000);
+      const tail = secs >= 5 ? '  (' + secs + 's)' : '';
+      ui.preview.textContent = i < LOAD_LINES.length
+        ? LOAD_LINES[i] + tail
+        : LOAD_LINES[LOAD_LINES.length - 1] + tail;
+    }, 1500);
+  }
+
+  function stopLoadTicker() {
+    if (loadTicker) { clearInterval(loadTicker); loadTicker = null; }
+  }
+
+  // keep a dragged panel reachable: >=90px visible horizontally, header on screen
+  function clampPanelPos(x, y) {
+    const w = (panel && panel.offsetWidth) || 420;
+    return {
+      x: clampNum(x, 90 - w, Math.max(90 - w, window.innerWidth - 90)),
+      y: clampNum(y, 4, Math.max(4, window.innerHeight - 28))
+    };
+  }
+
+  function applyPanelWidth(w) {
+    if (!panel) return;
+    const width = Math.min(clampNum(Math.round(w), 300, 720), window.innerWidth - 24);
+    panel.style.width = width + 'px';
+  }
+
+  function positionFromPin() {
+    if (!pinnedPos || !panel) return false;
+    const p = clampPanelPos(pinnedPos.x, pinnedPos.y);
+    pinnedPos = p;
+    panel.style.left = p.x + 'px';
+    panel.style.top = p.y + 'px';
+    panel.style.bottom = 'auto';
+    return true;
+  }
+
+  function makeDraggable(handle) {
+    if (!handle) return;
+    let sx = 0, sy = 0, ox = 0, oy = 0, dragging = false;
+    handle.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0 || panel.hidden) return;
+      e.preventDefault();
+      e.stopPropagation();
+      dragging = true;
+      gripMoved = false;
+      panel.classList.add('dragging');
+      const r = panel.getBoundingClientRect();
+      ox = r.left; oy = r.top; sx = e.clientX; sy = e.clientY;
+      try { handle.setPointerCapture(e.pointerId); } catch (_) {}
+    });
+    handle.addEventListener('pointermove', (e) => {
+      if (!dragging) return;
+      e.preventDefault();
+      if (Math.abs(e.clientX - sx) + Math.abs(e.clientY - sy) > 3) gripMoved = true;
+      panelPinned = true;
+      pinnedPos = clampPanelPos(ox + (e.clientX - sx), oy + (e.clientY - sy));
+      positionFromPin();
+    });
+    const end = (e) => {
+      if (!dragging) return;
+      dragging = false;
+      panel.classList.remove('dragging');
+      try { handle.releasePointerCapture(e.pointerId); } catch (_) {}
+      try { chrome.storage.local.set({ panelPos: pinnedPos }); } catch (_) {}
+      positionPanel();
+      if (gripMoved) log('debug', 'panel pinned at ' + pinnedPos.x + ',' + pinnedPos.y);
+    };
+    handle.addEventListener('pointerup', end);
+    handle.addEventListener('pointercancel', end);
+    // double-click = forget the custom spot, re-anchor above the composer
+    handle.addEventListener('dblclick', (e) => {
+      e.preventDefault();
+      panelPinned = false;
+      pinnedPos = null;
+      try { chrome.storage.local.remove('panelPos'); } catch (_) {}
+      positionPanel();
+      showHint('SWYM re-anchored above the message box.');
+    });
+  }
+
+  function makeResizable(handle) {
+    if (!handle) return;
+    let sx = 0, sw = 0, dragging = false;
+    handle.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      dragging = true;
+      sx = e.clientX;
+      sw = panel.offsetWidth;
+      try { handle.setPointerCapture(e.pointerId); } catch (_) {}
+    });
+    handle.addEventListener('pointermove', (e) => {
+      if (!dragging) return;
+      e.preventDefault();
+      applyPanelWidth(sw + (e.clientX - sx));
+      positionPanel();
+    });
+    const end = (e) => {
+      if (!dragging) return;
+      dragging = false;
+      try { handle.releasePointerCapture(e.pointerId); } catch (_) {}
+      try { chrome.storage.local.set({ panelW: panel.offsetWidth }); } catch (_) {}
+      positionPanel();
+    };
+    handle.addEventListener('pointerup', end);
+    handle.addEventListener('pointercancel', end);
   }
 
   // ---------------- UI: chip ----------------
@@ -1103,10 +1359,13 @@
   }
 
   function positionPanel() {
+    if (!panel || panel.hidden) return;
+    if (panelPinned && pinnedPos) { positionFromPin(); return; }
     if (!currentEditor || !currentEditor.isConnected) return;
     const r = currentEditor.getBoundingClientRect();
     const w = (panel && panel.offsetWidth) || 420;
     const maxLeft = Math.max(12, window.innerWidth - w - 12);
+    panel.style.top = 'auto';
     panel.style.left = clampNum(r.left, 12, maxLeft) + 'px';
     panel.style.bottom = Math.round(window.innerHeight - r.top + 10) + 'px';
   }

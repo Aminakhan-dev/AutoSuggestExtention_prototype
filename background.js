@@ -349,6 +349,10 @@ async function improvePrompt(text, noRetry, style) {
   if (!apiKey) throw new Error('No API key set. Click the SWYM toolbar icon, then Settings.');
   if (!text || !text.trim()) throw new Error('Nothing to improve - the message box looks empty.');
 
+  // token caps keep slow/free models from rambling — a shorter answer is also
+  // a visibly faster card, and perceived speed is half of actual speed
+  const MAX_TOKENS = { concise: 160, balanced: 340, detailed: 720 };
+
   let res;
   try {
     res = await fetch(cfg.base + '/chat/completions', {
@@ -360,6 +364,7 @@ async function improvePrompt(text, noRetry, style) {
       body: JSON.stringify({
         model: model,
         temperature: 0.6,
+        max_tokens: MAX_TOKENS[String(style || '')] || 340,
         response_format: { type: 'json_object' },
         messages: [
           { role: 'system', content: systemPromptFor(style) },

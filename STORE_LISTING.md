@@ -5,7 +5,7 @@ One-time registration fee: **$5 USD**.
 
 ## 1. Package
 
-- Upload the extension **zip** (the same `swym-extension-v0.5.4.zip` used for
+- Upload the extension **zip** (the same `swym-extension-v0.6.0.zip` used for
   website distribution — it must contain `manifest.json` at the zip root).
 - If the dashboard flags a version, bump `version` in `manifest.json` and
   re-zip; every upload must have a strictly higher version than the last.
@@ -22,25 +22,33 @@ One-time registration fee: **$5 USD**.
 
 **Detailed description**
 
-> Type messy, send sharp.
+> SWYM fixes your rough prompts before you send them.
 >
-> SWYM watches the message box on the AI chats you already use — ChatGPT,
-> Claude, Gemini, Perplexity and DeepSeek. When you pause after typing a rough
-> draft, it quietly suggests a sharper, more specific version of your prompt,
-> plus two alternative readings of what you might have meant.
+> The problem it solves: you type something quick and half-formed into ChatGPT —
+> "can u explain this but simpler pls" — hit enter, and get a vague answer you
+> spend the next three messages fixing. Writing a better prompt would fix it,
+> but nobody wants to do that every single time.
 >
-> - Works automatically: pause while typing and a small card appears above the
->   message box (or press Tab, click the Improve chip, or use Alt+Shift+I)
-> - One line by default — expand only when you want the details
-> - Keep rewriting: the card updates as your draft evolves
-> - Pick a length: Concise, Balanced or Detailed
-> - One click "Use" replaces your draft; Copy puts it on your clipboard
-> - Keyboard friendly: 1/2/3 switch variants, C copies, Ctrl+Enter accepts,
->   Esc dismisses
+> So SWYM does it for you. It lives in the message box of the AI chats you
+> already use. Type your draft, pause for a second, and a small card appears
+> with a sharper version of what you typed, plus two other takes on what you
+> might have meant. Hit Use (or Ctrl+Enter) to swap it in, or keep typing — the
+> card updates as your draft changes.
 >
-> Bring your own key — free tiers supported (Google Gemini, Groq, OpenRouter).
-> Your key stays in your browser and is sent only to the provider you choose.
-> No accounts, no analytics, no servers of ours.
+> What it does:
+>
+> - Works on ChatGPT, Claude, Gemini, Perplexity and DeepSeek
+> - Suggests when you pause; also on demand (Tab, the Improve chip, or Alt+Shift+I)
+> - Three versions to pick from: 1/2/3 to switch, C to copy
+> - Concise / Balanced / Detailed length picker
+> - Draggable, resizable card — park it where it stays out of your way
+> - Esc dismisses — nothing is ever sent without you
+>
+> What it doesn't do:
+>
+> - No account. No analytics. No server of ours.
+> - Your API key stays in your browser and goes only to the provider you pick.
+>   Free tiers work: Google Gemini, Groq, OpenRouter.
 
 **Category:** Productivity → Tools
 **Language:** English

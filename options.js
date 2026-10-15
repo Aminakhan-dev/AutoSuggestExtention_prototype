@@ -121,7 +121,11 @@ $('model').addEventListener('change', () => {
   $('customWrap').hidden = $('model').value !== 'custom';
 });
 $('refreshModels').addEventListener('click', () => { refreshModels().catch((e) => setStatus('Refresh failed: ' + e, 'bad')); });
-$('save').addEventListener('click', () => { save().catch((e) => setStatus('Save failed: ' + e, 'bad')); });
+$('save').addEventListener('click', () => {
+  save()
+    .then(() => { setStatus('Saved. Testing the key…', ''); return testKey(); })
+    .catch((e) => setStatus('Save failed: ' + e, 'bad'));
+});
 $('test').addEventListener('click', () => { testKey().catch((e) => setStatus('Test failed: ' + e, 'bad')); });
 
 load();

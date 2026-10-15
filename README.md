@@ -1,4 +1,4 @@
-# SWYM v0.5.4
+# SWYM v0.6.0
 
 **Say What You Mean.** SWYM is a Chrome extension that reads the rough prompt
 you just typed into an AI chat, infers what you *actually* want to accomplish, and
@@ -141,11 +141,19 @@ quick FYI, etc.).
 
 ## Status
 
-v0.5.4 (multi-site: ChatGPT / Claude / Gemini / Perplexity / DeepSeek —
+v0.6.0 (multi-site: ChatGPT / Claude / Gemini / Perplexity / DeepSeek —
 multi-provider: Gemini / Groq / OpenRouter / OpenAI, free tiers supported).
-v0.5.1 hardened the keyboard apply path for ProseMirror composers (Claude):
-editor readback normalizes zero-width markers and CRLF before matching, editor
-writes are verified with one paste retry, and apply targets are re-discovered
-live. v0.5.4 title-cases the tagline (SWYM — Say What You Mean); v0.5.3 trimmed the manifest description to the Web Store 132-char limit (was 159) and carries the SWYM rebrand — same engine, new name. Distributed as a
-direct download / Load unpacked; Chrome Web Store submission kit ready in
-STORE_LISTING.md. API key is BYO.
+v0.6.0 is the feedback round from first external testers: the card is now
+draggable anywhere on screen (double-click the grip to re-anchor), resizable
+from the corner, the expanded layout caps its height with internal scrolling
+and has a wide two-column mode, loading gets a progress bar + rotating status
+lines + elapsed-seconds counter, suggestions are token-capped per length style
+for faster responses, and setup is a guided 3-step flow (Save & test is one
+button; first-run popup says what to do). Earlier: v0.5.1 hardened the keyboard
+apply path for ProseMirror composers (Claude): editor readback normalizes
+zero-width markers and CRLF before matching, editor writes are verified with
+one paste retry, and apply targets are re-discovered live. v0.5.4 title-cases
+the tagline (SWYM — Say What You Mean); v0.5.3 trimmed the manifest description
+to the Web Store 132-char limit (was 159) and carries the SWYM rebrand — same
+engine, new name. Distributed as a direct download / Load unpacked; Chrome Web
+Store submission kit ready in STORE_LISTING.md. API key is BYO.

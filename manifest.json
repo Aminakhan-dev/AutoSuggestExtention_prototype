@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "SWYM — Say What You Mean",
   "short_name": "SWYM",
-  "version": "0.5.4",
+  "version": "0.6.0",
   "description": "Turns your rough draft in ChatGPT, Claude, Gemini, Perplexity or DeepSeek into a sharper prompt. Free providers supported.",
   "permissions": ["storage"],
   "host_permissions": [
